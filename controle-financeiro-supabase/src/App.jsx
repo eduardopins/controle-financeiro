@@ -7,7 +7,7 @@ import {
   CreditCard, Plus, Pencil, Trash2, LogOut, LayoutGrid, Wallet, PieChart as PieIcon,
   ListChecks, X, Check, Lock, ChevronRight, Download, AlertTriangle,
   Repeat, Target, Clock, Sun, Moon, Search, Paperclip, TrendingUp, TrendingDown,
-  DollarSign, CheckSquare, Square, Zap,
+  DollarSign, CheckSquare, Square, Zap, Share2,
 } from "lucide-react";
 
 /* ---------------------------------- tokens ---------------------------------- */
@@ -127,7 +127,7 @@ function nextInvoiceProjection(cardId, expenses, nowKey = currentMonthKey()) {
 }
 function categoryComparison(expenses, thisKey, prevKey, profileIds = null) {
   const scoped = profileIds ? expenses.filter((e) => profileIds.includes(e.profile_id)) : expenses;
-  return CATEGORIES.map((cat) => {
+  return allCategoryNames(scoped).map((cat) => {
     const current = scoped.filter((e) => e.category === cat && isDueIn(e, thisKey)).reduce((s, e) => s + monthlyValue(e), 0);
     const previous = scoped.filter((e) => e.category === cat && isDueIn(e, prevKey)).reduce((s, e) => s + monthlyValue(e), 0);
     return { category: cat, current, previous };
@@ -168,6 +168,16 @@ function detectBank(name) {
     if (n.includes(key)) return BANK_BRANDS[key];
   }
   return null;
+}
+
+function anyCardAlert(cards, expenses) {
+  const now = currentMonthKey();
+  return cards.some((c) => {
+    const used = expenses.filter((e) => e.card_id === c.id).reduce((s, e) => s + outstanding(e, now), 0);
+    const pct = c.card_limit ? (used / c.card_limit) * 100 : 0;
+    const { daysUntilDue } = billingInfo(c);
+    return pct >= 80 || daysUntilDue <= 5;
+  });
 }
 
 /* ---------------------------------- font injection ---------------------------------- */
@@ -352,7 +362,10 @@ function BottomNav({ tabs, tab, setTab }) {
           const active = tab === t.id;
           return (
             <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center gap-1 py-2.5 transition-all">
-              <div style={{ color: active ? C.gold : C.muted }}>{t.icon}</div>
+              <div className="relative" style={{ color: active ? C.gold : C.muted }}>
+                {t.icon}
+                {t.badge && <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full" style={{ background: C.rose }} />}
+              </div>
               <span className="text-[10px] font-medium" style={{ color: active ? C.gold : C.muted }}>{t.label}</span>
             </button>
           );
@@ -366,13 +379,14 @@ function BottomNav({ tabs, tab, setTab }) {
 /* ---------------------------------- data layer (Supabase) ---------------------------------- */
 
 async function loadAll() {
-  const [profiles, cards, cardAccess, expenses, budgets, incomes] = await Promise.all([
+  const [profiles, cards, cardAccess, expenses, budgets, incomes, customCategories] = await Promise.all([
     supabase.from("profiles").select("*"),
     supabase.from("cards").select("*"),
     supabase.from("card_access").select("*"),
     supabase.from("expenses").select("*"),
     supabase.from("budgets").select("*"),
     supabase.from("incomes").select("*"),
+    supabase.from("custom_categories").select("*"),
   ]);
   const cardsWithMembers = (cards.data || []).map((c) => ({
     ...c,
@@ -384,6 +398,7 @@ async function loadAll() {
     expenses: expenses.data || [],
     budgets: budgets.data || [],
     incomes: incomes.data || [],
+    customCategories: customCategories.data || [],
   };
 }
 
@@ -556,10 +571,12 @@ async function extractReceiptData(file) {
 
 /* ---------------------------------- EXPENSE FORM ---------------------------------- */
 
-function ExpenseForm({ cards, userId, onSave, onClose, initial, profiles }) {
+function ExpenseForm({ cards, userId, onSave, onClose, initial, profiles, allProfiles, customCategories, onAddCategory }) {
   const [selectedUserId, setSelectedUserId] = useState(initial?.profile_id || userId);
   const [cardId, setCardId] = useState(initial?.card_id || cards[0]?.id || "");
   const [category, setCategory] = useState(initial?.category || CATEGORIES[0]);
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
   const [description, setDescription] = useState(initial?.description || "");
   const [totalAmount, setTotalAmount] = useState(initial?.total_amount ?? "");
   const [date, setDate] = useState(initial?.purchase_date || new Date().toISOString().slice(0, 10));
@@ -571,6 +588,25 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, profiles }) {
   const [importing, setImporting] = useState(false);
   const [importNote, setImportNote] = useState("");
   const [err, setErr] = useState("");
+  const splitCandidates = (allProfiles || []).filter((p) => p.id !== selectedUserId);
+  const [splitEnabled, setSplitEnabled] = useState(false);
+  const [splitWith, setSplitWith] = useState(splitCandidates[0]?.id || "");
+  const [splitPct, setSplitPct] = useState(50);
+  const categoryOptions = [...CATEGORIES, ...(customCategories || []).filter((c) => c.profile_id === selectedUserId).map((c) => c.name)];
+
+  const submitNewCategory = async () => {
+    const name = newCategoryName.trim();
+    if (!name) return;
+    if (categoryOptions.includes(name)) { setCategory(name); setAddingCategory(false); setNewCategoryName(""); return; }
+    try {
+      await onAddCategory?.(selectedUserId, name);
+      setCategory(name);
+    } catch {
+      // se falhar, a pessoa ainda pode digitar a categoria manualmente na próxima tentativa
+    } finally {
+      setAddingCategory(false); setNewCategoryName("");
+    }
+  };
 
   const handleReceiptChange = async (file) => {
     setReceiptFile(file);
@@ -594,12 +630,21 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, profiles }) {
     try {
       let receiptUrl = existingReceipt;
       if (receiptFile) receiptUrl = await uploadReceipt(receiptFile, selectedUserId);
-      await onSave({
-        id: initial?.id, cardId, userId: selectedUserId, category, description: description.trim(),
-        totalAmount: parseFloat(totalAmount), date, firstMonth: monthKeyFromDate(date),
-        installments: isRecurring ? 1 : Math.max(1, parseInt(installments) || 1),
-        isRecurring, receiptUrl,
-      });
+      const base = {
+        cardId, category, description: description.trim(), date, firstMonth: monthKeyFromDate(date),
+        installments: isRecurring ? 1 : Math.max(1, parseInt(installments) || 1), isRecurring,
+      };
+      let toSave;
+      if (splitEnabled && splitWith) {
+        const pct = Math.min(100, Math.max(0, parseFloat(splitPct) || 50));
+        toSave = [
+          { ...base, id: initial?.id, userId: selectedUserId, totalAmount: parseFloat(totalAmount) * (pct / 100), receiptUrl },
+          { ...base, userId: splitWith, totalAmount: parseFloat(totalAmount) * ((100 - pct) / 100), receiptUrl: null },
+        ];
+      } else {
+        toSave = [{ ...base, id: initial?.id, userId: selectedUserId, totalAmount: parseFloat(totalAmount), receiptUrl }];
+      }
+      await onSave(toSave);
       onClose();
     } catch (e) {
       setSaving(false);
@@ -632,9 +677,18 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, profiles }) {
       <Field label="Descrição"><TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: Supermercado" /></Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Categoria">
-          <Select value={category} onChange={(e) => setCategory(e.target.value)}>
-            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </Select>
+          {addingCategory ? (
+            <div className="flex gap-1.5">
+              <TextInput value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="Nome da categoria" autoFocus />
+              <button onClick={submitNewCategory}><Check size={16} color={C.green} /></button>
+              <button onClick={() => { setAddingCategory(false); setNewCategoryName(""); }}><X size={16} color={C.muted} /></button>
+            </div>
+          ) : (
+            <Select value={category} onChange={(e) => e.target.value === "__add__" ? setAddingCategory(true) : setCategory(e.target.value)}>
+              {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+              <option value="__add__">+ Nova categoria...</option>
+            </Select>
+          )}
         </Field>
         <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={totalAmount} onChange={(e) => setTotalAmount(e.target.value)} placeholder="0,00" /></Field>
       </div>
@@ -651,6 +705,37 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, profiles }) {
       {!isRecurring && installments > 1 && totalAmount && (
         <p className="text-xs mb-3" style={{ color: C.muted }}>{installments}x de <b style={{ color: C.goldSoft }}>{brl(totalAmount / installments)}</b></p>
       )}
+
+      {!initial && splitCandidates.length > 0 && (
+        <div className="mb-3.5">
+          <label className="flex items-center gap-2 text-sm mb-2" style={{ color: C.text }}>
+            <input type="checkbox" checked={splitEnabled} onChange={(e) => { setSplitEnabled(e.target.checked); if (!splitWith) setSplitWith(splitCandidates[0]?.id || ""); }} />
+            Dividir com outra pessoa
+          </label>
+          {splitEnabled && (
+            <div className="rounded-xl p-3" style={{ background: C.bgSoft, border: `1px solid ${C.border}` }}>
+              <div className="grid grid-cols-2 gap-3 mb-2">
+                <Field label="Dividir com">
+                  <Select value={splitWith} onChange={(e) => setSplitWith(e.target.value)}>
+                    {splitCandidates.map((p) => <option key={p.id} value={p.id}>{firstName(p.name)}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Sua parte (%)">
+                  <TextInput type="number" min="0" max="100" value={splitPct} onChange={(e) => setSplitPct(e.target.value)} />
+                </Field>
+              </div>
+              {totalAmount && (
+                <p className="text-xs" style={{ color: C.muted }}>
+                  Você: <b style={{ color: C.text }}>{brl((parseFloat(totalAmount) || 0) * (Math.min(100, Math.max(0, splitPct || 0)) / 100))}</b>
+                  {" · "}
+                  {firstName(splitCandidates.find((p) => p.id === splitWith)?.name || "")}: <b style={{ color: C.text }}>{brl((parseFloat(totalAmount) || 0) * (1 - Math.min(100, Math.max(0, splitPct || 0)) / 100))}</b>
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
       {initial && (
         <Field label="Comprovante (opcional)">
@@ -796,7 +881,7 @@ function ExpenseRow({ exp, cardName, personName, onEdit, onDelete, showPerson, s
           {selected ? <CheckSquare size={16} color={C.gold} /> : <Square size={16} color={C.muted} />}
         </button>
       )}
-      <div className="w-2 h-2 rounded-full shrink-0" style={{ background: CAT_COLORS[exp.category] }} />
+      <div className="w-2 h-2 rounded-full shrink-0" style={{ background: getCategoryColor(exp.category) }} />
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium truncate flex items-center gap-1.5" style={{ color: C.text }}>
           {exp.description}{exp.is_recurring && <Repeat size={11} color={C.muted} />}
@@ -861,7 +946,7 @@ function IncomeSection({ profile, data, refresh }) {
   const saldo = incomeMonth - expenseMonth;
 
   const handleSave = async (inc) => { await saveIncome(inc); await refresh(); };
-  const handleDelete = async (inc) => { await deleteIncome(inc); await refresh(); };
+  const handleDelete = async (inc) => { if (!window.confirm("Excluir esta receita?")) return; await deleteIncome(inc); await refresh(); };
 
   return (
     <Panel className="mb-4" style={{
@@ -922,6 +1007,7 @@ function GoalsScreen({ profile, data, refresh }) {
   const now = currentMonthKey();
   const dueNow = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now));
   const myBudgets = data.budgets.filter((b) => b.profile_id === profile.id);
+  const myCategories = [...CATEGORIES, ...(data.customCategories || []).filter((c) => c.profile_id === profile.id).map((c) => c.name)];
   const [editingCat, setEditingCat] = useState(null);
   const [value, setValue] = useState("");
 
@@ -932,6 +1018,7 @@ function GoalsScreen({ profile, data, refresh }) {
     await refresh();
   };
   const remove = async (budget) => {
+    if (!window.confirm("Excluir esta meta?")) return;
     await deleteBudget(budget.id);
     await refresh();
   };
@@ -940,7 +1027,7 @@ function GoalsScreen({ profile, data, refresh }) {
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
       <ScreenHeader title="Metas" subtitle="Seus limites por categoria" />
       <div className="space-y-3">
-        {CATEGORIES.map((cat) => {
+        {myCategories.map((cat) => {
           const spent = dueNow.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0);
           const budget = myBudgets.find((b) => b.category === cat);
           const pct = budget ? (spent / budget.monthly_limit) * 100 : 0;
@@ -949,7 +1036,7 @@ function GoalsScreen({ profile, data, refresh }) {
             <Panel key={cat}>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: CAT_COLORS[cat] }} />
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: getCategoryColor(cat) }} />
                   <span className="text-sm font-medium" style={{ color: C.text }}>{cat}</span>
                 </div>
                 {!isEditing && (
@@ -1015,9 +1102,142 @@ function invoiceStatusInfo(card, monthKey) {
   return { label: "paga", tone: "muted" };
 }
 
+const FALLBACK_CAT_COLORS = ["#F59E0B", "#3B82F6", "#10B981", "#EC4899", "#EF4444", "#8B5CF6", "#06B6D4", "#6B7280", "#84CC16", "#F472B6"];
+function getCategoryColor(name) {
+  if (CAT_COLORS[name]) return CAT_COLORS[name];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return FALLBACK_CAT_COLORS[hash % FALLBACK_CAT_COLORS.length];
+}
+function allCategoryNames(expenses) {
+  return Array.from(new Set([...CATEGORIES, ...expenses.map((e) => e.category)]));
+}
+
+async function saveCustomCategory(profileId, name) {
+  const { error } = await supabase.from("custom_categories").insert({ profile_id: profileId, name });
+  if (error) throw error;
+}
 async function bulkUpdateCategory(ids, category) {
   const { error } = await supabase.from("expenses").update({ category }).in("id", ids);
   if (error) throw error;
+}
+
+function parseBankCSV(text) {
+  const delimiter = text.includes(";") ? ";" : ",";
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length === 0) return [];
+  const splitLine = (line) => {
+    const result = [];
+    let cur = "", inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQuotes = !inQuotes; continue; }
+      if (ch === delimiter && !inQuotes) { result.push(cur); cur = ""; continue; }
+      cur += ch;
+    }
+    result.push(cur);
+    return result.map((s) => s.trim());
+  };
+  const first = splitLine(lines[0]).map((s) => s.toLowerCase());
+  const looksLikeHeader = first.some((c) => c.includes("data") || c.includes("date")) && first.some((c) => c.includes("valor") || c.includes("amount") || c.includes("value"));
+  let dateIdx = 0, descIdx = 1, amountIdx = 2, startLine = 0;
+  if (looksLikeHeader) {
+    dateIdx = first.findIndex((c) => c.includes("data") || c.includes("date"));
+    amountIdx = first.findIndex((c) => c.includes("valor") || c.includes("amount") || c.includes("value"));
+    descIdx = first.findIndex((c) => c.includes("descri") || c.includes("histor") || c.includes("memo"));
+    if (descIdx === -1) descIdx = first.findIndex((_, i) => i !== dateIdx && i !== amountIdx);
+    startLine = 1;
+  }
+  const rows = [];
+  for (let i = startLine; i < lines.length; i++) {
+    const cols = splitLine(lines[i]);
+    if (cols.length < 2) continue;
+    const rawDate = cols[dateIdx] || "";
+    const rawDesc = cols[descIdx] || "Sem descrição";
+    const rawAmount = (cols[amountIdx] || "0").replace(/[R$\s]/g, "");
+    let amount = parseFloat(rawAmount.replace(/\./g, "").replace(",", "."));
+    if (isNaN(amount)) amount = parseFloat(rawAmount.replace(",", "")) || 0;
+    amount = Math.abs(amount);
+    let date = new Date().toISOString().slice(0, 10);
+    const isoDate = rawDate.match(/(\d{4})-(\d{2})-(\d{2})/);
+    const brDate = rawDate.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})/);
+    if (isoDate) date = `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}`;
+    else if (brDate) { let [, d, m, y] = brDate; if (y.length === 2) y = "20" + y; date = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`; }
+    if (amount > 0) rows.push({ date, description: rawDesc || "Sem descrição", amount, category: CATEGORIES[CATEGORIES.length - 1], include: true });
+  }
+  return rows;
+}
+
+function ImportCSVModal({ cards, userId, onImport, onClose }) {
+  const [rows, setRows] = useState(null);
+  const [cardId, setCardId] = useState(cards[0]?.id || "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    const text = await file.text();
+    setRows(parseBankCSV(text));
+  };
+  const toggleRow = (i) => setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, include: !r.include } : r)));
+  const updateCategory = (i, cat) => setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, category: cat } : r)));
+
+  const confirmImport = async () => {
+    setSaving(true); setErr("");
+    try {
+      const toImport = rows.filter((r) => r.include).map((r) => ({
+        cardId, userId, category: r.category, description: r.description,
+        totalAmount: r.amount, date: r.date, firstMonth: monthKeyFromDate(r.date),
+        installments: 1, isRecurring: false, receiptUrl: null,
+      }));
+      await onImport(toImport);
+      onClose();
+    } catch (e) {
+      setSaving(false);
+      setErr(friendlyError(e));
+    }
+  };
+
+  return (
+    <Modal title="Importar extrato (CSV)" onClose={onClose}>
+      {!rows ? (
+        <>
+          <p className="text-xs mb-3" style={{ color: C.muted }}>Envie o arquivo CSV do extrato (data, descrição e valor). Depois você confere cada lançamento antes de importar de verdade.</p>
+          <input type="file" accept=".csv,text/csv" onChange={(e) => handleFile(e.target.files?.[0])} className="text-xs" style={{ color: C.muted }} />
+        </>
+      ) : rows.length === 0 ? (
+        <p className="text-sm" style={{ color: C.muted }}>Não consegui reconhecer nenhum lançamento nesse arquivo.</p>
+      ) : (
+        <>
+          <Field label="Cartão de destino">
+            <Select value={cardId} onChange={(e) => setCardId(e.target.value)}>
+              {cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </Select>
+          </Field>
+          <p className="text-xs mb-2" style={{ color: C.muted }}>{rows.filter((r) => r.include).length} de {rows.length} lançamentos serão importados</p>
+          <div className="max-h-64 overflow-y-auto space-y-2 mb-3">
+            {rows.map((r, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs rounded-lg p-2" style={{ background: C.bgSoft, opacity: r.include ? 1 : 0.4 }}>
+                <button onClick={() => toggleRow(i)}>{r.include ? <CheckSquare size={14} color={C.gold} /> : <Square size={14} color={C.muted} />}</button>
+                <div className="flex-1 min-w-0">
+                  <div className="truncate" style={{ color: C.text }}>{r.description}</div>
+                  <div style={{ color: C.muted }}>{r.date}</div>
+                </div>
+                <Select value={r.category} onChange={(e) => updateCategory(i, e.target.value)} style={{ padding: "4px 6px", fontSize: 11 }}>
+                  {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </Select>
+                <Amount value={r.amount} size="text-xs" />
+              </div>
+            ))}
+          </div>
+          {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
+          <Btn full onClick={confirmImport} disabled={saving || cards.length === 0 || rows.filter((r) => r.include).length === 0}>
+            {saving ? "Importando..." : "Confirmar importação"}
+          </Btn>
+        </>
+      )}
+    </Modal>
+  );
 }
 
 /* ---------------------------------- HISTORY (reusable) ---------------------------------- */
@@ -1036,6 +1256,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [bulkSaving, setBulkSaving] = useState(false);
 
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showImportCSV, setShowImportCSV] = useState(false);
   const carouselRef = useRef(null);
   const dragState = useRef({ isDown: false, startX: 0, scrollLeft: 0 });
   const onCarouselMouseDown = (e) => {
@@ -1072,8 +1293,8 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
   const myCards = isAdmin ? data.cards : data.cards.filter((c) => c.memberIds.includes(profile.id));
 
-  const handleSave = async (exp) => { await saveExpense(exp); await refresh(); };
-  const handleDelete = async (exp) => { await deleteExpense(exp); await refresh(); };
+  const handleSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
+  const handleDelete = async (exp) => { if (!window.confirm("Excluir este gasto?")) return; await deleteExpense(exp); await refresh(); };
   const toggleSelect = (id) => setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   const applyBulk = async () => {
     setBulkSaving(true);
@@ -1184,6 +1405,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
           <div className="flex gap-2 mb-4">
             <Btn full onClick={() => { setEditing(null); setShowForm(true); }} disabled={myCards.length === 0}><Plus size={16} /> Novo gasto</Btn>
+            <Btn variant="ghost" onClick={() => setShowImportCSV(true)} disabled={myCards.length === 0}><Paperclip size={16} /></Btn>
             <div className="relative">
               <Btn variant="ghost" onClick={() => setShowExportMenu((v) => !v)}><Download size={16} /></Btn>
               {showExportMenu && (
@@ -1230,10 +1452,86 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
       {showForm && (
         <ExpenseForm cards={myCards} userId={editing?.profile_id || profile.id} initial={editing}
           onSave={handleSave} onClose={() => setShowForm(false)}
-          profiles={isAdmin ? data.profiles : null} />
+          profiles={isAdmin ? data.profiles : null} allProfiles={data.profiles}
+          customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />
+      )}
+      {showImportCSV && (
+        <ImportCSVModal cards={myCards} userId={profile.id} onImport={handleSave} onClose={() => setShowImportCSV(false)} />
       )}
     </div>
   );
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function drawSummaryCanvas({ name, monthLabelStr, total, saldo, categories }) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 800; canvas.height = 1000;
+  const ctx = canvas.getContext("2d");
+  const grad = ctx.createLinearGradient(0, 0, 800, 1000);
+  grad.addColorStop(0, "#7C3AED"); grad.addColorStop(1, "#3B1466");
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, 800, 1000);
+
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.beginPath(); ctx.arc(760, 90, 190, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(30, 960, 160, 0, Math.PI * 2); ctx.fill();
+
+  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.font = "600 22px sans-serif";
+  ctx.fillText("CONTROLE FINANCEIRO", 50, 80);
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "800 46px sans-serif";
+  ctx.fillText(`Olá, ${name}`, 50, 160);
+  ctx.fillStyle = "rgba(255,255,255,0.75)";
+  ctx.font = "400 24px sans-serif";
+  ctx.fillText(monthLabelStr, 50, 195);
+
+  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  roundRectPath(ctx, 50, 240, 700, 140, 20); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.75)"; ctx.font = "500 20px sans-serif"; ctx.fillText("Total gasto no mês", 80, 285);
+  ctx.fillStyle = "#fff"; ctx.font = "800 54px sans-serif"; ctx.fillText(brl(total), 80, 345);
+
+  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  roundRectPath(ctx, 50, 410, 700, 110, 20); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.75)"; ctx.font = "500 20px sans-serif"; ctx.fillText("Saldo do mês", 80, 450);
+  ctx.fillStyle = saldo < 0 ? "#F1A9A8" : "#8CE0BE";
+  ctx.font = "800 38px sans-serif"; ctx.fillText(brl(saldo), 80, 493);
+
+  let y = 575;
+  ctx.fillStyle = "rgba(255,255,255,0.75)"; ctx.font = "600 20px sans-serif"; ctx.fillText("Principais categorias", 50, y); y += 40;
+  categories.slice(0, 5).forEach((c) => {
+    ctx.fillStyle = c.color;
+    ctx.beginPath(); ctx.arc(65, y - 7, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.font = "500 22px sans-serif"; ctx.textAlign = "left"; ctx.fillText(c.name, 90, y);
+    ctx.textAlign = "right"; ctx.fillText(brl(c.value), 750, y); ctx.textAlign = "left";
+    y += 44;
+  });
+
+  ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.font = "400 16px sans-serif";
+  ctx.fillText("Gerado pelo Controle Financeiro", 50, 960);
+
+  return canvas;
+}
+async function shareSummaryImage(params) {
+  const canvas = drawSummaryCanvas(params);
+  canvas.toBlob(async (blob) => {
+    if (!blob) return;
+    const file = new File([blob], "resumo-financeiro.png", { type: "image/png" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: "Resumo do mês" }); return; } catch {}
+    }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url; link.download = "resumo-financeiro.png"; link.click();
+  }, "image/png");
 }
 
 /* ---------------------------------- MEMBER: OVERVIEW ---------------------------------- */
@@ -1243,10 +1541,24 @@ function MemberOverview({ profile, data, refresh }) {
   const myCards = data.cards.filter((c) => c.memberIds.includes(profile.id));
   const myExpenses = data.expenses.filter((e) => e.profile_id === profile.id);
   const myMonthTotal = myExpenses.filter((e) => isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
+  const myIncomeMonth = (data.incomes || []).filter((i) => i.profile_id === profile.id && isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
+
+  const handleShare = () => {
+    const dueNow = myExpenses.filter((e) => isDueIn(e, now));
+    const categories = allCategoryNames(dueNow)
+      .map((cat) => ({ name: cat, value: dueNow.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0), color: getCategoryColor(cat) }))
+      .filter((c) => c.value > 0).sort((a, b) => b.value - a.value);
+    shareSummaryImage({ name: firstName(profile.name), monthLabelStr: monthLabel(now), total: myMonthTotal, saldo: myIncomeMonth - myMonthTotal, categories });
+  };
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <ScreenHeader title={`Olá, ${profile.name.split(" ")[0]}`} subtitle="Seu mês" />
+      <div className="flex items-center justify-between">
+        <ScreenHeader title={`Olá, ${profile.name.split(" ")[0]}`} subtitle="Seu mês" />
+        <button onClick={handleShare} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mb-4" style={{ border: `1px solid ${C.border}` }}>
+          <Share2 size={15} color={C.gold} />
+        </button>
+      </div>
       <HeroPanel label="Total do mês" value={myMonthTotal} />
       <IncomeSection profile={profile} data={data} refresh={refresh} />
 
@@ -1270,10 +1582,25 @@ function AdminOverview({ profile, data, refresh }) {
   const now = currentMonthKey();
   const totalMonth = data.expenses.filter((e) => isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
   const byPerson = data.profiles.map((u) => ({ ...u, total: data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0) }));
+  const adminIncomeMonth = (data.incomes || []).filter((i) => i.profile_id === profile.id && isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
+  const adminExpenseMonth = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
+
+  const handleShare = () => {
+    const dueNow = data.expenses.filter((e) => isDueIn(e, now));
+    const categories = allCategoryNames(dueNow)
+      .map((cat) => ({ name: cat, value: dueNow.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0), color: getCategoryColor(cat) }))
+      .filter((c) => c.value > 0).sort((a, b) => b.value - a.value);
+    shareSummaryImage({ name: firstName(profile.name), monthLabelStr: monthLabel(now), total: totalMonth, saldo: adminIncomeMonth - adminExpenseMonth, categories });
+  };
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <ScreenHeader title="Visão geral" subtitle="Este mês" />
+      <div className="flex items-center justify-between">
+        <ScreenHeader title="Visão geral" subtitle="Este mês" />
+        <button onClick={handleShare} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mb-4" style={{ border: `1px solid ${C.border}` }}>
+          <Share2 size={15} color={C.gold} />
+        </button>
+      </div>
       <div className="space-y-4">
         <HeroPanel label="Total do mês" value={totalMonth} />
         <IncomeSection profile={profile} data={data} refresh={refresh} />
@@ -1303,7 +1630,7 @@ function AdminCards({ data, refresh }) {
   const now = currentMonthKey();
 
   const handleSave = async (card) => { await saveCard(card); await refresh(); };
-  const handleDelete = async (card) => { await deleteCard(card); await refresh(); };
+  const handleDelete = async (card) => { if (!window.confirm(`Excluir o cartão "${card.name}"? Isso também remove os gastos lançados nele.`)) return; await deleteCard(card); await refresh(); };
 
   const totalAvailable = data.cards.reduce((s, c) => {
     const used = data.expenses.filter((e) => e.card_id === c.id).reduce((s2, e) => s2 + outstanding(e, now), 0);
@@ -1366,7 +1693,7 @@ function monthKeysForPeriod(period, customRange) {
 }
 function categoryTotalsForMonths(expenses, monthKeys, profileIds = null) {
   const scoped = profileIds ? expenses.filter((e) => profileIds.includes(e.profile_id)) : expenses;
-  return CATEGORIES.map((cat) => {
+  return allCategoryNames(scoped).map((cat) => {
     let value = 0;
     monthKeys.forEach((mk) => { value += scoped.filter((e) => e.category === cat && isDueIn(e, mk)).reduce((s, e) => s + monthlyValue(e), 0); });
     return { name: cat, value };
@@ -1465,7 +1792,7 @@ function ReportsScreen({ profile, data, isAdmin }) {
             <ResponsiveContainer width="100%" height={230}>
               <PieChart>
                 <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={3} cornerRadius={6}>
-                  {byCategory.map((d, i) => <Cell key={i} fill={CAT_COLORS[d.name]} stroke="none" />)}
+                  {byCategory.map((d, i) => <Cell key={i} fill={getCategoryColor(d.name)} stroke="none" />)}
                 </Pie>
                 <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text }} />
               </PieChart>
@@ -1477,7 +1804,7 @@ function ReportsScreen({ profile, data, isAdmin }) {
             <div className="flex flex-wrap gap-x-4 gap-y-1.5 justify-center mt-2">
               {byCategory.map((d) => (
                 <div key={d.name} className="flex items-center gap-1.5 text-[11px]" style={{ color: C.muted }}>
-                  <span className="w-2 h-2 rounded-full" style={{ background: CAT_COLORS[d.name] }} />
+                  <span className="w-2 h-2 rounded-full" style={{ background: getCategoryColor(d.name) }} />
                   {d.name}
                 </div>
               ))}
@@ -1550,19 +1877,53 @@ function FloatingAddButton({ onClick }) {
   );
 }
 
+function showLocalNotification(title, body) {
+  const opts = { body, icon: "/icon.svg" };
+  if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+    navigator.serviceWorker.ready.then((reg) => reg.showNotification(title, opts)).catch(() => { try { new Notification(title, opts); } catch {} });
+  } else {
+    try { new Notification(title, opts); } catch {}
+  }
+}
+function useBillAlerts(cards, expenses) {
+  useEffect(() => {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "default") Notification.requestPermission();
+    if (Notification.permission !== "granted") return;
+    const now = currentMonthKey();
+    const today = new Date().toISOString().slice(0, 10);
+    cards.forEach((c) => {
+      const used = expenses.filter((e) => e.card_id === c.id).reduce((s, e) => s + outstanding(e, now), 0);
+      const pct = c.card_limit ? (used / c.card_limit) * 100 : 0;
+      const { daysUntilDue } = billingInfo(c);
+      const keyLimit = `notif-limit-${c.id}-${today}`;
+      const keyDue = `notif-due-${c.id}-${today}`;
+      if (pct >= 80 && !localStorage.getItem(keyLimit)) {
+        showLocalNotification("Limite quase no fim", `${c.name}: ${pct.toFixed(0)}% do limite já usado.`);
+        localStorage.setItem(keyLimit, "1");
+      }
+      if (daysUntilDue >= 0 && daysUntilDue <= 5 && !localStorage.getItem(keyDue)) {
+        showLocalNotification("Fatura vencendo", `${c.name} vence em ${daysUntilDue} ${daysUntilDue === 1 ? "dia" : "dias"}.`);
+        localStorage.setItem(keyDue, "1");
+      }
+    });
+  }, [cards, expenses]);
+}
+
 /* ---------------------------------- DASHBOARDS ---------------------------------- */
 
 function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = useState("overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const myCards = data.cards.filter((c) => c.memberIds.includes(profile.id));
+  useBillAlerts(myCards, data.expenses);
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
-    { id: "history", label: "Faturas", icon: <ListChecks size={18} /> },
+    { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(myCards, data.expenses) },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
     { id: "goals", label: "Metas", icon: <Target size={18} /> },
   ];
-  const handleQuickSave = async (exp) => { await saveExpense(exp); await refresh(); };
+  const handleQuickSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
   return (
     <>
       <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} />
@@ -1571,7 +1932,8 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
       {tab === "reports" && <ReportsScreen profile={profile} data={data} isAdmin={false} />}
       {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
       {myCards.length > 0 && <FloatingAddButton onClick={() => setShowQuickAdd(true)} />}
-      {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} />}
+      {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles}
+        customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
       <BottomNav tabs={tabs} tab={tab} setTab={setTab} />
     </>
   );
@@ -1580,14 +1942,15 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
 function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = useState("overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  useBillAlerts(data.cards, data.expenses);
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "cards", label: "Cartões", icon: <CreditCard size={18} /> },
-    { id: "history", label: "Faturas", icon: <ListChecks size={18} /> },
+    { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(data.cards, data.expenses) },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
     { id: "goals", label: "Metas", icon: <Target size={18} /> },
   ];
-  const handleQuickSave = async (exp) => { await saveExpense(exp); await refresh(); };
+  const handleQuickSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
   return (
     <>
       <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} />
@@ -1597,7 +1960,8 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
       {tab === "reports" && <ReportsScreen profile={profile} data={data} isAdmin />}
       {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
       {data.cards.length > 0 && <FloatingAddButton onClick={() => setShowQuickAdd(true)} />}
-      {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} profiles={data.profiles} />}
+      {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} profiles={data.profiles} allProfiles={data.profiles}
+        customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
       <BottomNav tabs={tabs} tab={tab} setTab={setTab} />
     </>
   );
