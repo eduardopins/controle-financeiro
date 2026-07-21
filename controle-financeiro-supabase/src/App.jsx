@@ -6,17 +6,34 @@ import {
 import {
   CreditCard, Plus, Pencil, Trash2, LogOut, LayoutGrid, Wallet, PieChart as PieIcon,
   ListChecks, X, Check, Lock, ChevronRight, Download, AlertTriangle,
-  Repeat, Target, Clock,
+  Repeat, Target, Clock, Sun, Moon,
 } from "lucide-react";
 
 /* ---------------------------------- tokens ---------------------------------- */
 
 const C = {
-  bg: "#0F1226", bgSoft: "#151A38", surface: "#1B2148", surfaceAlt: "#242B58",
-  border: "rgba(201,162,76,0.14)", borderStrong: "rgba(201,162,76,0.32)",
-  gold: "#C9A24C", goldSoft: "#E4C77E", text: "#F1EEE3", muted: "#9AA1C4",
-  green: "#54B08A", rose: "#DD7C86", amber: "#D9A441",
+  bg: "var(--bg)", bgSoft: "var(--bg-soft)", surface: "var(--surface)", surfaceAlt: "var(--surface-alt)",
+  border: "var(--border)", borderStrong: "var(--border-strong)",
+  gold: "var(--gold)", goldSoft: "var(--gold-soft)", text: "var(--text)", muted: "var(--muted)",
+  green: "var(--green)", rose: "var(--rose)", amber: "var(--amber)", shadow: "var(--shadow)",
 };
+
+const THEME_CSS = `
+.theme-dark {
+  --bg: #0A0C18; --bg-soft: #10132A; --surface: #151933; --surface-alt: #1C2140;
+  --border: rgba(184,147,90,0.14); --border-strong: rgba(184,147,90,0.34);
+  --gold: #B8935A; --gold-soft: #D8B885; --text: #F4F1E9; --muted: #8B92AC;
+  --green: #5FA88C; --rose: #C97575; --amber: #CBA05A;
+  --shadow: 0 10px 34px rgba(0,0,0,0.38);
+}
+.theme-light {
+  --bg: #F7F4EE; --bg-soft: #FFFFFF; --surface: #FFFFFF; --surface-alt: #F1EBDD;
+  --border: rgba(122,95,45,0.16); --border-strong: rgba(122,95,45,0.32);
+  --gold: #8A6A34; --gold-soft: #6E5427; --text: #201D17; --muted: #726A59;
+  --green: #2F7A5C; --rose: #A8504F; --amber: #8A6A2A;
+  --shadow: 0 10px 28px rgba(70,55,25,0.10);
+}
+`;
 
 const CATEGORIES = ["Alimentação", "Moradia", "Transporte", "Lazer", "Saúde", "Compras", "Educação", "Outros"];
 const CAT_COLORS = {
@@ -101,16 +118,40 @@ function useFonts() {
   useEffect(() => {
     const link = document.createElement("link");
     link.rel = "stylesheet";
-    link.href = "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap";
+    link.href = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap";
     document.head.appendChild(link);
     return () => document.head.removeChild(link);
   }, []);
 }
 
+function useThemeStyles() {
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.textContent = THEME_CSS;
+    document.head.appendChild(style);
+    return () => document.head.removeChild(style);
+  }, []);
+}
+
+function useTheme() {
+  const [theme, setTheme] = useState(() => {
+    const saved = typeof window !== "undefined" && localStorage.getItem("theme");
+    if (saved) return saved;
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  });
+  useEffect(() => {
+    document.documentElement.classList.remove("theme-dark", "theme-light");
+    document.documentElement.classList.add(`theme-${theme}`);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+  const toggle = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+  return [theme, toggle];
+}
+
 /* ---------------------------------- UI atoms ---------------------------------- */
 
 function Panel({ children, style, className = "" }) {
-  return <div className={`rounded-2xl p-5 ${className}`} style={{ background: C.surface, border: `1px solid ${C.border}`, ...style }}>{children}</div>;
+  return <div className={`rounded-2xl p-5 ${className}`} style={{ background: C.surface, border: `1px solid ${C.border}`, boxShadow: C.shadow, ...style }}>{children}</div>;
 }
 function Btn({ children, onClick, variant = "primary", type = "button", full, disabled }) {
   const base = "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition-all active:scale-[0.97] disabled:opacity-50";
@@ -131,9 +172,9 @@ function Select(props) { return <select {...props} className={inputClass} style=
 function Modal({ title, onClose, children }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "rgba(6,8,20,0.75)" }}>
-      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 max-h-[85vh] overflow-y-auto" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}` }}>
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 max-h-[85vh] overflow-y-auto" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold" style={{ color: C.text, fontFamily: "'Space Grotesk', sans-serif" }}>{title}</h3>
+          <h3 className="font-semibold" style={{ color: C.text, fontFamily: "'Fraunces', serif" }}>{title}</h3>
           <button onClick={onClose}><X size={18} color={C.muted} /></button>
         </div>
         {children}
@@ -161,7 +202,7 @@ function Chip({ tone = "muted", icon, children }) {
 function ScreenHeader({ title, subtitle }) {
   return (
     <div className="mb-4">
-      <h2 className="text-lg font-semibold" style={{ color: C.text, fontFamily: "'Space Grotesk', sans-serif" }}>{title}</h2>
+      <h2 className="text-lg font-semibold" style={{ color: C.text, fontFamily: "'Fraunces', serif" }}>{title}</h2>
       {subtitle && <p className="text-xs mt-0.5" style={{ color: C.muted }}>{subtitle}</p>}
     </div>
   );
@@ -204,7 +245,7 @@ function PeriodFilter({ value, onChange, customRange, onCustomChange }) {
 
 function BottomNav({ tabs, tab, setTab }) {
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40" style={{ background: "rgba(15,18,38,0.96)", backdropFilter: "blur(10px)", borderTop: `1px solid ${C.border}` }}>
+    <div className="fixed bottom-0 left-0 right-0 z-40" style={{ background: "var(--surface)", borderTop: `1px solid ${C.border}`, boxShadow: "0 -8px 24px rgba(0,0,0,0.12)" }}>
       <div className="max-w-3xl mx-auto grid" style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
         {tabs.map((t) => {
           const active = tab === t.id;
@@ -281,7 +322,7 @@ async function saveBudget(profileId, category, monthly_limit) {
 
 /* ---------------------------------- LOGIN ---------------------------------- */
 
-function Login({ onLogin }) {
+function Login({ onLogin, theme, onToggleTheme }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
@@ -296,11 +337,16 @@ function Login({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-5" style={{ background: C.bg }}>
+    <div className="min-h-screen flex items-center justify-center p-5 relative" style={{ background: C.bg }}>
+      <div className="absolute top-5 right-5">
+        <button onClick={onToggleTheme} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.border}` }}>
+          {theme === "dark" ? <Sun size={15} color={C.gold} /> : <Moon size={15} color={C.gold} />}
+        </button>
+      </div>
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2 mb-8 justify-center">
           <Wallet size={26} color={C.gold} />
-          <span className="text-xl font-semibold" style={{ color: C.text, fontFamily: "'Space Grotesk', sans-serif" }}>Controle Financeiro</span>
+          <span className="text-xl font-semibold tracking-wide" style={{ color: C.text, fontFamily: "'Fraunces', serif" }}>Controle Financeiro</span>
         </div>
         <Panel>
           <Field label="E-mail"><TextInput value={email} onChange={(e) => setEmail(e.target.value)} autoFocus /></Field>
@@ -317,16 +363,27 @@ function Login({ onLogin }) {
 
 /* ---------------------------------- TOPBAR ---------------------------------- */
 
-function TopBar({ profile, onLogout }) {
+function ThemeToggle({ theme, onToggle }) {
   return (
-    <div className="sticky top-0 z-30" style={{ background: "rgba(15,18,38,0.92)", backdropFilter: "blur(8px)", borderBottom: `1px solid ${C.border}` }}>
+    <button onClick={onToggle} className="w-8 h-8 rounded-full flex items-center justify-center transition-all" style={{ border: `1px solid ${C.border}` }}>
+      {theme === "dark" ? <Sun size={14} color={C.gold} /> : <Moon size={14} color={C.gold} />}
+    </button>
+  );
+}
+
+function TopBar({ profile, onLogout, theme, onToggleTheme }) {
+  return (
+    <div className="sticky top-0 z-30" style={{ background: "var(--bg)", borderBottom: `1px solid ${C.border}` }}>
       <div className="max-w-3xl mx-auto px-4 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Wallet size={18} color={C.gold} />
-          <span className="text-sm font-semibold" style={{ color: C.text, fontFamily: "'Space Grotesk', sans-serif" }}>{profile.name}</span>
+          <span className="text-sm font-semibold tracking-wide" style={{ color: C.text, fontFamily: "'Fraunces', serif" }}>{profile.name}</span>
           {profile.role === "admin" && <Chip>admin</Chip>}
         </div>
-        <button onClick={onLogout}><LogOut size={17} color={C.muted} /></button>
+        <div className="flex items-center gap-3">
+          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+          <button onClick={onLogout}><LogOut size={17} color={C.muted} /></button>
+        </div>
       </div>
     </div>
   );
@@ -434,9 +491,9 @@ function CardWidget({ card, used }) {
   const tone = pct > 85 ? "rose" : pct > 60 ? "gold" : "green";
   const { status, daysUntilDue } = billingInfo(card);
   return (
-    <div className="rounded-2xl p-4 relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${C.surfaceAlt}, ${C.bgSoft})`, border: `1px solid ${C.borderStrong}` }}>
+    <div className="rounded-2xl p-4 relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${C.surfaceAlt}, ${C.bgSoft})`, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-medium" style={{ color: C.text, fontFamily: "'Space Grotesk', sans-serif" }}>{card.name}</span>
+        <span className="text-sm font-medium" style={{ color: C.text, fontFamily: "'Fraunces', serif" }}>{card.name}</span>
         <div className="flex items-center gap-1.5">
           {pct >= 80 && <Chip tone="rose" icon={<AlertTriangle size={10} />}>{pct.toFixed(0)}%</Chip>}
           {daysUntilDue <= 5 && <Chip tone="amber" icon={<Clock size={10} />}>{daysUntilDue}d</Chip>}
@@ -754,7 +811,7 @@ function AdminReports({ data }) {
 
 /* ---------------------------------- DASHBOARDS ---------------------------------- */
 
-function MemberApp({ profile, data, refresh, onLogout }) {
+function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = useState("overview");
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
@@ -763,7 +820,7 @@ function MemberApp({ profile, data, refresh, onLogout }) {
   ];
   return (
     <>
-      <TopBar profile={profile} onLogout={onLogout} />
+      <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} />
       {tab === "overview" && <MemberOverview profile={profile} data={data} />}
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
       {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
@@ -772,7 +829,7 @@ function MemberApp({ profile, data, refresh, onLogout }) {
   );
 }
 
-function AdminApp({ profile, data, refresh, onLogout }) {
+function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = useState("overview");
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
@@ -783,7 +840,7 @@ function AdminApp({ profile, data, refresh, onLogout }) {
   ];
   return (
     <>
-      <TopBar profile={profile} onLogout={onLogout} />
+      <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} />
       {tab === "overview" && <AdminOverview data={data} />}
       {tab === "cards" && <AdminCards data={data} refresh={refresh} />}
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
@@ -798,6 +855,8 @@ function AdminApp({ profile, data, refresh, onLogout }) {
 
 export default function App() {
   useFonts();
+  useThemeStyles();
+  const [theme, toggleTheme] = useTheme();
   const [authUser, setAuthUser] = useState(undefined);
   const [profile, setProfile] = useState(null);
   const [data, setData] = useState(null);
@@ -825,7 +884,7 @@ export default function App() {
   }, [authUser, refresh]);
 
   if (authUser === undefined) return <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg, color: C.muted }}>Carregando…</div>;
-  if (!authUser) return <Login onLogin={setAuthUser} />;
+  if (!authUser) return <Login onLogin={setAuthUser} theme={theme} onToggleTheme={toggleTheme} />;
   if (!profile || !data) return <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg, color: C.muted }}>{error || "Carregando…"}</div>;
 
   const handleLogout = async () => { await supabase.auth.signOut(); };
@@ -834,9 +893,9 @@ export default function App() {
     <div className="min-h-screen" style={{ background: C.bg }}>
       {error && <div className="text-center text-xs py-1.5" style={{ background: "rgba(221,124,134,0.15)", color: C.rose }}>{error}</div>}
       {profile.role === "admin" ? (
-        <AdminApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} />
+        <AdminApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />
       ) : (
-        <MemberApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} />
+        <MemberApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />
       )}
     </div>
   );
