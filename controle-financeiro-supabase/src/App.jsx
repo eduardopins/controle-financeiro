@@ -19,6 +19,7 @@ const C = {
 };
 
 const THEME_CSS = `
+body { font-family: 'Inter', sans-serif; }
 .theme-dark {
   --bg: #0A0C18; --bg-soft: #10132A; --surface: #151933; --surface-alt: #1C2140;
   --border: rgba(184,147,90,0.14); --border-strong: rgba(184,147,90,0.34);
@@ -145,7 +146,7 @@ function useFonts() {
   useEffect(() => {
     const link = document.createElement("link");
     link.rel = "stylesheet";
-    link.href = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap";
+    link.href = "https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap";
     document.head.appendChild(link);
     return () => document.head.removeChild(link);
   }, []);
@@ -175,6 +176,26 @@ function useTheme() {
   return [theme, toggle];
 }
 
+function shade(hex, percent) {
+  const f = parseInt(hex.slice(1), 16), t = percent < 0 ? 0 : 255, p = Math.abs(percent);
+  const R = f >> 16, G = (f >> 8) & 0x00ff, B = f & 0x0000ff;
+  return "#" + (0x1000000 + (Math.round((t - R) * p) + R) * 0x10000 + (Math.round((t - G) * p) + G) * 0x100 + (Math.round((t - B) * p) + B)).toString(16).slice(1);
+}
+const HERO_GRADIENT = "linear-gradient(135deg, #7C3AED, #4C1D95)";
+
+function HeroPanel({ label, value }) {
+  return (
+    <div className="rounded-3xl p-6 mb-4 relative overflow-hidden" style={{ background: HERO_GRADIENT, boxShadow: "0 14px 34px rgba(76,29,149,0.35)" }}>
+      <div style={{ position: "absolute", right: -40, top: -40, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
+      <div style={{ position: "absolute", left: -25, bottom: -55, width: 130, height: 130, borderRadius: "50%", background: "rgba(255,255,255,0.06)" }} />
+      <span className="text-xs relative" style={{ color: "rgba(255,255,255,0.75)" }}>{label}</span>
+      <div className="mt-1 relative">
+        <span className="text-3xl font-extrabold" style={{ color: "#fff", fontFamily: "'Manrope', sans-serif", fontVariantNumeric: "tabular-nums" }}>{brl(value)}</span>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------------------- UI atoms ---------------------------------- */
 
 function Panel({ children, style, className = "" }) {
@@ -201,7 +222,7 @@ function Modal({ title, onClose, children }) {
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "rgba(6,8,20,0.75)" }}>
       <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 max-h-[85vh] overflow-y-auto" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold" style={{ color: C.text, fontFamily: "'Fraunces', serif" }}>{title}</h3>
+          <h3 className="font-semibold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{title}</h3>
           <button onClick={onClose}><X size={18} color={C.muted} /></button>
         </div>
         {children}
@@ -229,7 +250,7 @@ function Chip({ tone = "muted", icon, children }) {
 function ScreenHeader({ title, subtitle }) {
   return (
     <div className="mb-4">
-      <h2 className="text-lg font-semibold" style={{ color: C.text, fontFamily: "'Fraunces', serif" }}>{title}</h2>
+      <h2 className="text-lg font-semibold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{title}</h2>
       {subtitle && <p className="text-xs mt-0.5" style={{ color: C.muted }}>{subtitle}</p>}
     </div>
   );
@@ -373,7 +394,7 @@ function Login({ onLogin, theme, onToggleTheme }) {
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2 mb-8 justify-center">
           <Wallet size={26} color={C.gold} />
-          <span className="text-xl font-semibold tracking-wide" style={{ color: C.text, fontFamily: "'Fraunces', serif" }}>Controle Financeiro</span>
+          <span className="text-xl font-semibold tracking-wide" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>Controle Financeiro</span>
         </div>
         <Panel>
           <Field label="E-mail"><TextInput value={email} onChange={(e) => setEmail(e.target.value)} autoFocus /></Field>
@@ -404,7 +425,7 @@ function TopBar({ profile, onLogout, theme, onToggleTheme }) {
       <div className="max-w-3xl mx-auto px-4 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Wallet size={18} color={C.gold} />
-          <span className="text-sm font-semibold tracking-wide" style={{ color: C.text, fontFamily: "'Fraunces', serif" }}>{profile.name}</span>
+          <span className="text-sm font-semibold tracking-wide" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{profile.name}</span>
           {profile.role === "admin" && <Chip>admin</Chip>}
         </div>
         <div className="flex items-center gap-3">
@@ -526,32 +547,48 @@ function CardWidget({ card, used }) {
   const tone = pct > 85 ? "rose" : pct > 60 ? "gold" : "green";
   const { status, daysUntilDue } = billingInfo(card);
   const brand = detectBank(card.name);
+  const base = brand ? brand.color : "#7C3AED";
+  const gradient = `linear-gradient(135deg, ${base}, ${shade(base, -0.4)})`;
+
   return (
-    <div className="rounded-2xl p-4 relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${C.surfaceAlt}, ${C.bgSoft})`, border: `1px solid ${C.borderStrong}`, borderLeft: brand ? `4px solid ${brand.color}` : `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-medium" style={{ color: C.text, fontFamily: "'Fraunces', serif" }}>{card.name}</span>
-        <div className="flex items-center gap-1.5">
-          {pct >= 80 && <Chip tone="rose" icon={<AlertTriangle size={10} />}>{pct.toFixed(0)}%</Chip>}
-          {daysUntilDue <= 5 && <Chip tone="amber" icon={<Clock size={10} />}>{daysUntilDue}d</Chip>}
-          {brand ? (
-            <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={{ background: brand.color }} title={brand.label}>
-              <span style={{ fontSize: 9, fontWeight: 700, color: brand.darkText ? "#1A1607" : "#FFFFFF", fontFamily: "'Fraunces', serif" }}>{brand.mono}</span>
-            </div>
-          ) : (
-            <CreditCard size={16} color={C.gold} />
-          )}
+    <div className="rounded-2xl overflow-hidden" style={{ boxShadow: C.shadow }}>
+      {/* face do cartão */}
+      <div className="relative p-4" style={{ background: gradient, minHeight: 118 }}>
+        <div style={{ position: "absolute", right: -30, top: -30, width: 110, height: 110, borderRadius: "50%", background: "rgba(255,255,255,0.10)" }} />
+        <div className="flex items-start justify-between relative">
+          <div className="rounded-md" style={{ width: 30, height: 22, background: "linear-gradient(135deg, #F4E4B5, #C9A24C)" }} />
+          <div className="flex items-center gap-1.5">
+            {pct >= 80 && <Chip tone="rose" icon={<AlertTriangle size={10} />}>{pct.toFixed(0)}%</Chip>}
+            {daysUntilDue <= 5 && <Chip tone="amber" icon={<Clock size={10} />}>{daysUntilDue}d</Chip>}
+          </div>
+        </div>
+        <div className="mt-4 relative text-sm" style={{ color: "rgba(255,255,255,0.85)", fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 2 }}>
+          •••• •••• •••• ••••
+        </div>
+        <div className="flex items-end justify-between mt-3 relative">
+          <div>
+            <div style={{ fontSize: 8, color: "rgba(255,255,255,0.6)", letterSpacing: 0.5 }}>CARTÃO</div>
+            <div className="text-xs font-semibold truncate max-w-[140px]" style={{ color: "#fff", fontFamily: "'Manrope', sans-serif" }}>{card.name}</div>
+          </div>
+          <div className="text-right">
+            <div style={{ fontSize: 8, color: "rgba(255,255,255,0.6)", letterSpacing: 0.5 }}>VENCE</div>
+            <div className="text-xs font-semibold" style={{ color: "#fff", fontFamily: "'Manrope', sans-serif" }}>dia {card.due_day}</div>
+          </div>
         </div>
       </div>
-      <div className="flex items-baseline justify-between mb-1.5">
-        <span className="text-[11px]" style={{ color: C.muted }}>disponível</span>
-        <Amount value={Math.max(card.card_limit - used, 0)} size="text-base" tone={tone === "rose" ? "rose" : undefined} />
-      </div>
-      <ProgressBar pct={pct} tone={tone} />
-      <div className="flex items-center justify-between mt-2 text-[11px]" style={{ color: C.muted }}>
-        <span>usado {brl(used)}</span><span>limite {brl(card.card_limit)}</span>
-      </div>
-      <div className="mt-2 text-[10px]" style={{ color: C.muted }}>
-        fatura {status} · fecha dia {card.closing_day} · vence dia {card.due_day}
+      {/* detalhes / limite */}
+      <div className="p-4" style={{ background: C.surface }}>
+        <div className="flex items-baseline justify-between mb-1.5">
+          <span className="text-[11px]" style={{ color: C.muted }}>disponível</span>
+          <Amount value={Math.max(card.card_limit - used, 0)} size="text-base" tone={tone === "rose" ? "rose" : undefined} />
+        </div>
+        <ProgressBar pct={pct} tone={tone} />
+        <div className="flex items-center justify-between mt-2 text-[11px]" style={{ color: C.muted }}>
+          <span>usado {brl(used)}</span><span>limite {brl(card.card_limit)}</span>
+        </div>
+        <div className="mt-2 text-[10px]" style={{ color: C.muted }}>
+          fatura {status} · fecha dia {card.closing_day}
+        </div>
       </div>
     </div>
   );
@@ -709,10 +746,7 @@ function MemberOverview({ profile, data }) {
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
       <ScreenHeader title={`Olá, ${profile.name.split(" ")[0]}`} subtitle="Resumo do seu mês" />
-      <Panel className="mb-4" style={{ background: `linear-gradient(135deg, ${C.surfaceAlt}, ${C.surface})` }}>
-        <span className="text-[11px]" style={{ color: C.muted }}>gasto este mês</span>
-        <div className="mt-1"><Amount value={myMonthTotal} size="text-3xl" /></div>
-      </Panel>
+      <HeroPanel label="gasto este mês" value={myMonthTotal} />
 
       {myCards.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -739,10 +773,7 @@ function AdminOverview({ data }) {
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
       <ScreenHeader title="Visão geral" subtitle="Resumo da família este mês" />
       <div className="space-y-4">
-        <Panel style={{ background: `linear-gradient(135deg, ${C.surfaceAlt}, ${C.surface})` }}>
-          <span className="text-[11px]" style={{ color: C.muted }}>total da família este mês</span>
-          <div className="mt-1"><Amount value={totalMonth} size="text-3xl" /></div>
-        </Panel>
+        <HeroPanel label="total da família este mês" value={totalMonth} />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {byPerson.map((p) => (
             <Panel key={p.id}><span className="text-[11px]" style={{ color: C.muted }}>{p.name}</span><div className="mt-1"><Amount value={p.total} size="text-lg" /></div></Panel>
