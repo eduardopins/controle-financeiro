@@ -38,15 +38,16 @@ body { font-family: 'Inter', sans-serif; }
 
 const CATEGORIES = ["Alimentação", "Moradia", "Transporte", "Lazer", "Saúde", "Compras", "Educação", "Outros"];
 const CAT_COLORS = {
-  "Alimentação": "#E4C77E", "Moradia": "#7FA8C9", "Transporte": "#8FB89C",
-  "Lazer": "#C98F9E", "Saúde": "#D08A5B", "Compras": "#A98FC9",
-  "Educação": "#6FBFB0", "Outros": "#9AA1C4",
+  "Alimentação": "#F59E0B", "Moradia": "#3B82F6", "Transporte": "#10B981",
+  "Lazer": "#EC4899", "Saúde": "#EF4444", "Compras": "#8B5CF6",
+  "Educação": "#06B6D4", "Outros": "#6B7280",
 };
 const MONTHS_PT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 
 /* ---------------------------------- utils ---------------------------------- */
 
 const brl = (n) => (n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const firstName = (n) => (n || "").split(" ")[0];
 const monthKeyFromDate = (dateStr) => dateStr.slice(0, 7);
 const currentMonthKey = () => {
   const d = new Date();
@@ -131,6 +132,8 @@ const BANK_BRANDS = {
   "will": { label: "Will Bank", color: "#FFD200", mono: "WB", darkText: true },
   "original": { label: "Banco Original", color: "#00A868", mono: "OR" },
   "btg": { label: "BTG Pactual", color: "#0B2545", mono: "BT" },
+  "magalu": { label: "Magalu", color: "#0087FF", mono: "MG" },
+  "luizacred": { label: "Magalu", color: "#0087FF", mono: "MG" },
 };
 function detectBank(name) {
   const n = (name || "").toLowerCase();
@@ -425,7 +428,7 @@ function TopBar({ profile, onLogout, theme, onToggleTheme }) {
       <div className="max-w-3xl mx-auto px-4 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Wallet size={18} color={C.gold} />
-          <span className="text-sm font-semibold tracking-wide" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{profile.name}</span>
+          <span className="text-sm font-semibold tracking-wide" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{firstName(profile.name)}</span>
           {profile.role === "admin" && <Chip>admin</Chip>}
         </div>
         <div className="flex items-center gap-3">
@@ -530,7 +533,7 @@ function CardForm({ allProfiles, onSave, onClose, initial }) {
           {allProfiles.map((u) => (
             <label key={u.id} className="flex items-center gap-2 text-sm" style={{ color: C.text }}>
               <input type="checkbox" checked={memberIds.includes(u.id)} onChange={() => toggle(u.id)} />
-              {u.name}
+              {firstName(u.name)}
             </label>
           ))}
         </div>
@@ -678,7 +681,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [editing, setEditing] = useState(null);
 
   const cardName = (id) => data.cards.find((c) => c.id === id)?.name || "-";
-  const personName = (id) => data.profiles.find((u) => u.id === id)?.name || "-";
+  const personName = (id) => firstName(data.profiles.find((u) => u.id === id)?.name) || "-";
   const range = periodToRange(period, customRange);
 
   const baseExpenses = isAdmin ? data.expenses : data.expenses.filter((e) => e.profile_id === profile.id);
@@ -695,13 +698,13 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <ScreenHeader title="Histórico" subtitle={isAdmin ? "Lançamentos da família" : "Seus lançamentos"} />
+      <ScreenHeader title="Histórico" subtitle={isAdmin ? "Todos os lançamentos" : "Seus lançamentos"} />
 
       {isAdmin && (
         <div className="flex gap-2 mb-3">
           <Select value={filterPerson} onChange={(e) => setFilterPerson(e.target.value)} className="flex-1">
             <option value="all">Todas as pessoas</option>
-            {data.profiles.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            {data.profiles.map((u) => <option key={u.id} value={u.id}>{firstName(u.name)}</option>)}
           </Select>
           <Select value={filterCard} onChange={(e) => setFilterCard(e.target.value)} className="flex-1">
             <option value="all">Todos os cartões</option>
@@ -776,7 +779,7 @@ function AdminOverview({ data }) {
         <HeroPanel label="Total do mês" value={totalMonth} />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {byPerson.map((p) => (
-            <Panel key={p.id}><span className="text-[11px]" style={{ color: C.muted }}>{p.name}</span><div className="mt-1"><Amount value={p.total} size="text-lg" /></div></Panel>
+            <Panel key={p.id}><span className="text-[11px]" style={{ color: C.muted }}>{firstName(p.name)}</span><div className="mt-1"><Amount value={p.total} size="text-lg" /></div></Panel>
           ))}
         </div>
         <h4 className="text-xs font-medium mb-1 tracking-wide uppercase" style={{ color: C.muted }}>Cartões</h4>
@@ -816,7 +819,7 @@ function AdminCards({ data, refresh }) {
         {data.cards.length === 0 && <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão cadastrado ainda." /></Panel>}
         {data.cards.map((c) => {
           const used = data.expenses.filter((e) => e.card_id === c.id).reduce((s, e) => s + outstanding(e, now), 0);
-          const names = data.profiles.filter((u) => c.memberIds.includes(u.id)).map((u) => u.name).join(", ") || "ninguém ainda";
+          const names = data.profiles.filter((u) => c.memberIds.includes(u.id)).map((u) => firstName(u.name)).join(", ") || "ninguém ainda";
           return (
             <div key={c.id}>
               <CardWidget card={c} used={used} />
@@ -843,42 +846,65 @@ function AdminCards({ data, refresh }) {
 function AdminReports({ data }) {
   const now = currentMonthKey();
   const dueNow = data.expenses.filter((e) => isDueIn(e, now));
-  const byCategory = CATEGORIES.map((cat) => ({ name: cat, value: dueNow.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0) })).filter((d) => d.value > 0);
+  const totalMonth = dueNow.reduce((s, e) => s + monthlyValue(e), 0);
+  const byCategory = CATEGORIES.map((cat) => ({ name: cat, value: dueNow.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0) }))
+    .filter((d) => d.value > 0)
+    .sort((a, b) => b.value - a.value);
 
   const months = last6Months();
   const evolution = months.map((mk) => {
     const row = { month: monthLabel(mk) };
-    data.profiles.forEach((u) => { row[u.name] = data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, mk)).reduce((s, e) => s + monthlyValue(e), 0); });
+    data.profiles.forEach((u) => { row[firstName(u.name)] = data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, mk)).reduce((s, e) => s + monthlyValue(e), 0); });
     return row;
   });
-  const personColors = [C.gold, C.green, C.rose, "#7FA8C9"];
+  const personColors = ["#7C3AED", "#EC4899", "#10B981", "#3B82F6"];
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-5 pb-28 space-y-5">
-      <ScreenHeader title="Relatórios" subtitle="Como a família está gastando" />
+    <div className="max-w-3xl mx-auto px-4 py-5 pb-28 space-y-4">
+      <ScreenHeader title="Relatórios" subtitle="Como está o mês" />
+      <HeroPanel label="Total do mês" value={totalMonth} />
+
       <Panel>
-        <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Gastos por categoria (mês atual)</h4>
-        {byCategory.length === 0 ? <p className="text-sm" style={{ color: C.muted }}>Sem dados neste mês.</p> : (
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={2}>
-                {byCategory.map((d, i) => <Cell key={i} fill={CAT_COLORS[d.name]} />)}
-              </Pie>
-              <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text }} />
-              <Legend wrapperStyle={{ fontSize: 11, color: C.muted }} />
-            </PieChart>
-          </ResponsiveContainer>
+        <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Por categoria</h4>
+        {byCategory.length === 0 ? (
+          <EmptyState icon={<PieIcon size={28} />} text="Sem dados neste mês." />
+        ) : (
+          <div className="relative">
+            <ResponsiveContainer width="100%" height={230}>
+              <PieChart>
+                <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={3} cornerRadius={6}>
+                  {byCategory.map((d, i) => <Cell key={i} fill={CAT_COLORS[d.name]} stroke="none" />)}
+                </Pie>
+                <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text }} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ top: -8 }}>
+              <span className="text-[10px]" style={{ color: C.muted }}>total</span>
+              <span className="text-lg font-extrabold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{brl(totalMonth)}</span>
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5 justify-center mt-2">
+              {byCategory.map((d) => (
+                <div key={d.name} className="flex items-center gap-1.5 text-[11px]" style={{ color: C.muted }}>
+                  <span className="w-2 h-2 rounded-full" style={{ background: CAT_COLORS[d.name] }} />
+                  {d.name}
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </Panel>
+
       <Panel>
-        <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Evolução mensal por pessoa</h4>
-        <ResponsiveContainer width="100%" height={240}>
-          <BarChart data={evolution}>
-            <XAxis dataKey="month" stroke={C.muted} fontSize={11} />
-            <YAxis stroke={C.muted} fontSize={11} tickFormatter={(v) => `${v / 1000}k`} />
-            <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text }} />
+        <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Evolução mensal</h4>
+        <ResponsiveContainer width="100%" height={230}>
+          <BarChart data={evolution} barGap={4}>
+            <XAxis dataKey="month" stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} />
+            <YAxis stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} tickFormatter={(v) => `${v / 1000}k`} />
+            <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text }} cursor={{ fill: "rgba(124,58,237,0.06)" }} />
             <Legend wrapperStyle={{ fontSize: 11, color: C.muted }} />
-            {data.profiles.map((u, i) => <Bar key={u.id} dataKey={u.name} stackId="a" fill={personColors[i % personColors.length]} radius={i === data.profiles.length - 1 ? [4, 4, 0, 0] : 0} />)}
+            {data.profiles.map((u, i) => (
+              <Bar key={u.id} dataKey={firstName(u.name)} radius={[6, 6, 0, 0]} fill={personColors[i % personColors.length]} maxBarSize={22} />
+            ))}
           </BarChart>
         </ResponsiveContainer>
       </Panel>
