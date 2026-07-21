@@ -20,6 +20,7 @@ const C = {
 };
 
 const THEME_CSS = `
+html, body, #root { height: 100%; margin: 0; }
 body { font-family: 'Inter', sans-serif; }
 .theme-dark {
   --bg: #0A0C18; --bg-soft: #10132A; --surface: #151933; --surface-alt: #1C2140;
@@ -307,23 +308,32 @@ function periodPresetLabel(id) {
   return { month: "Este mês", "1m": "1 mês", "3m": "3 meses", "6m": "6 meses", "12m": "12 meses", custom: "Personalizado" }[id];
 }
 function PeriodFilter({ value, onChange, customRange, onCustomChange }) {
+  const [open, setOpen] = useState(false);
   const presets = ["month", "1m", "3m", "6m", "12m", "custom"];
   return (
     <div className="mb-3">
-      <div className="flex gap-1.5 flex-wrap mb-2">
-        {presets.map((p) => (
-          <button key={p} onClick={() => onChange(p)}
-            className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
-            style={{ background: value === p ? C.gold : "transparent", color: value === p ? "#1A1607" : C.muted, border: `1px solid ${value === p ? C.gold : C.border}` }}>
-            {periodPresetLabel(p)}
-          </button>
-        ))}
-      </div>
-      {value === "custom" && (
-        <div className="grid grid-cols-2 gap-2">
-          <TextInput type="date" value={customRange.start} onChange={(e) => onCustomChange({ ...customRange, start: e.target.value })} />
-          <TextInput type="date" value={customRange.end} onChange={(e) => onCustomChange({ ...customRange, end: e.target.value })} />
-        </div>
+      <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2 mb-2" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text }}>
+        <Clock size={12} color={C.muted} /> {periodPresetLabel(value)}
+        <ChevronRight size={13} color={C.muted} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+      </button>
+      {open && (
+        <>
+          <div className="flex gap-1.5 flex-wrap mb-2">
+            {presets.map((p) => (
+              <button key={p} onClick={() => { onChange(p); if (p !== "custom") setOpen(false); }}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+                style={{ background: value === p ? C.gold : "transparent", color: value === p ? "#1A1607" : C.muted, border: `1px solid ${value === p ? C.gold : C.border}` }}>
+                {periodPresetLabel(p)}
+              </button>
+            ))}
+          </div>
+          {value === "custom" && (
+            <div className="grid grid-cols-2 gap-2">
+              <TextInput type="date" value={customRange.start} onChange={(e) => onCustomChange({ ...customRange, start: e.target.value })} />
+              <TextInput type="date" value={customRange.end} onChange={(e) => onCustomChange({ ...customRange, end: e.target.value })} />
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -424,6 +434,10 @@ async function saveBudget(profileId, category, monthly_limit) {
   const { error } = await supabase.from("budgets").upsert({ profile_id: profileId, category, monthly_limit }, { onConflict: "profile_id,category" });
   if (error) throw error;
 }
+async function deleteBudget(budgetId) {
+  const { error } = await supabase.from("budgets").delete().eq("id", budgetId);
+  if (error) throw error;
+}
 async function saveIncome(inc) {
   const payload = {
     profile_id: inc.profileId, description: inc.description, amount: inc.amount,
@@ -492,7 +506,7 @@ function ThemeToggle({ theme, onToggle }) {
 
 function TopBar({ profile, onLogout, theme, onToggleTheme }) {
   return (
-    <div className="sticky top-0 z-30" style={{ background: "var(--bg)", borderBottom: `1px solid ${C.border}` }}>
+    <div className="sticky top-0 z-30" style={{ background: "var(--bg)", borderBottom: `1px solid ${C.border}`, paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="max-w-3xl mx-auto px-4 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Wallet size={18} color={C.gold} />
@@ -782,27 +796,25 @@ function IncomeSection({ profile, data, refresh }) {
   const handleDelete = async (inc) => { await deleteIncome(inc); await refresh(); };
 
   return (
-    <Panel className="mt-4">
-      <div className="flex items-center justify-between mb-3">
-        <h4 className="text-xs font-medium tracking-wide uppercase flex items-center gap-1.5" style={{ color: C.muted }}><DollarSign size={13} /> Receitas e saldo</h4>
-        <button onClick={() => setShowForm(true)} className="flex items-center gap-1 text-xs" style={{ color: C.gold }}><Plus size={13} /> Receita</button>
+    <Panel className="mb-4" style={{ border: `1px solid ${saldo < 0 ? "rgba(168,80,79,0.35)" : "rgba(47,122,92,0.3)"}` }}>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <span className="text-[11px]" style={{ color: C.muted }}>saldo do mês</span>
+          <div><Amount value={saldo} size="text-2xl" tone={saldo < 0 ? "rose" : "green"} /></div>
+        </div>
+        <button onClick={() => setShowForm(true)} className="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2" style={{ background: C.gold, color: "#1A1607" }}>
+          <Plus size={14} /> Receita
+        </button>
       </div>
-      <div className="grid grid-cols-2 gap-3 mb-3">
-        <div>
-          <span className="text-[11px]" style={{ color: C.muted }}>receita do mês</span>
-          <div><Amount value={incomeMonth} size="text-base" tone="green" /></div>
-        </div>
-        <div>
-          <span className="text-[11px]" style={{ color: C.muted }}>saldo</span>
-          <div><Amount value={saldo} size="text-base" tone={saldo < 0 ? "rose" : "green"} /></div>
-        </div>
+      <div className="flex items-center gap-1.5 text-xs pb-3" style={{ color: C.muted, borderBottom: `1px solid ${C.border}` }}>
+        <DollarSign size={12} /> entrou {brl(incomeMonth)} · saiu {brl(expenseMonth)}
       </div>
       {myIncomes.length > 0 && (
-        <div className="space-y-2 pt-2" style={{ borderTop: `1px solid ${C.border}` }}>
+        <div className="space-y-2.5 pt-3">
           {myIncomes.sort((a, b) => b.income_date.localeCompare(a.income_date)).map((inc) => (
             <div key={inc.id} className="flex items-center justify-between text-sm">
-              <span style={{ color: C.text }}>{inc.description}{inc.is_recurring && <Repeat size={11} className="inline ml-1" color={C.muted} />}</span>
-              <div className="flex items-center gap-2">
+              <span style={{ color: C.text }}>{inc.description}{inc.is_recurring && <Repeat size={11} className="inline ml-1.5" color={C.muted} />}</span>
+              <div className="flex items-center gap-2.5">
                 <Amount value={inc.amount} size="text-xs" tone="green" />
                 <button onClick={() => handleDelete(inc)}><Trash2 size={13} color={C.rose} /></button>
               </div>
@@ -830,37 +842,55 @@ function GoalsScreen({ profile, data, refresh }) {
     setEditingCat(null); setValue("");
     await refresh();
   };
+  const remove = async (budget) => {
+    await deleteBudget(budget.id);
+    await refresh();
+  };
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
       <ScreenHeader title="Metas" subtitle="Teto mensal por categoria, só seu" />
-      <Panel>
-        <div className="space-y-4">
-          {CATEGORIES.map((cat) => {
-            const spent = dueNow.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0);
-            const budget = myBudgets.find((b) => b.category === cat);
-            const pct = budget ? (spent / budget.monthly_limit) * 100 : 0;
-            return (
-              <div key={cat}>
-                <div className="flex items-center justify-between text-xs mb-1.5">
-                  <span style={{ color: C.text }}>{cat}</span>
-                  {editingCat === cat ? (
-                    <div className="flex gap-1.5 items-center">
-                      <TextInput type="number" style={{ width: 90, padding: "4px 8px" }} value={value} onChange={(e) => setValue(e.target.value)} placeholder={budget ? String(budget.monthly_limit) : "0"} autoFocus />
-                      <button onClick={submit}><Check size={14} color={C.green} /></button>
-                    </div>
-                  ) : (
-                    <button onClick={() => { setEditingCat(cat); setValue(budget?.monthly_limit || ""); }} className="text-[11px]" style={{ color: C.muted }}>
-                      {budget ? `${brl(spent)} / ${brl(budget.monthly_limit)}` : "definir meta"}
-                    </button>
-                  )}
+      <div className="space-y-3">
+        {CATEGORIES.map((cat) => {
+          const spent = dueNow.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0);
+          const budget = myBudgets.find((b) => b.category === cat);
+          const pct = budget ? (spent / budget.monthly_limit) * 100 : 0;
+          const isEditing = editingCat === cat;
+          return (
+            <Panel key={cat}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: CAT_COLORS[cat] }} />
+                  <span className="text-sm font-medium" style={{ color: C.text }}>{cat}</span>
                 </div>
-                {budget && <ProgressBar pct={pct} tone={pct > 100 ? "rose" : pct > 80 ? "gold" : "green"} />}
+                {!isEditing && (
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => { setEditingCat(cat); setValue(budget?.monthly_limit || ""); }}><Pencil size={14} color={C.muted} /></button>
+                    {budget && <button onClick={() => remove(budget)}><Trash2 size={14} color={C.rose} /></button>}
+                  </div>
+                )}
               </div>
-            );
-          })}
-        </div>
-      </Panel>
+
+              {isEditing ? (
+                <div className="flex gap-2 items-center">
+                  <TextInput type="number" value={value} onChange={(e) => setValue(e.target.value)} placeholder="Valor da meta (R$)" autoFocus />
+                  <Btn onClick={submit}><Check size={14} /></Btn>
+                </div>
+              ) : budget ? (
+                <>
+                  <div className="flex items-baseline justify-between mb-1.5 text-sm">
+                    <span style={{ color: C.muted }}>gasto até agora</span>
+                    <span style={{ color: C.text }}>{brl(spent)} <span style={{ color: C.muted }}>de {brl(budget.monthly_limit)}</span></span>
+                  </div>
+                  <ProgressBar pct={pct} tone={pct > 100 ? "rose" : pct > 80 ? "gold" : "green"} />
+                </>
+              ) : (
+                <p className="text-xs" style={{ color: C.muted }}>Nenhuma meta definida para esta categoria.</p>
+              )}
+            </Panel>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -884,6 +914,8 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [selected, setSelected] = useState([]);
   const [bulkCategory, setBulkCategory] = useState(CATEGORIES[0]);
   const [bulkSaving, setBulkSaving] = useState(false);
+
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const cardName = (id) => data.cards.find((c) => c.id === id)?.name || "-";
   const personName = (id) => firstName(data.profiles.find((u) => u.id === id)?.name) || "-";
@@ -946,8 +978,17 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
       <div className="flex gap-2 mb-4">
         <Btn full onClick={() => { setEditing(null); setShowForm(true); }} disabled={myCards.length === 0}><Plus size={16} /> Novo gasto</Btn>
-        <Btn variant="ghost" onClick={() => downloadCSV(toCSV(filtered, cardName, personName), `gastos-${period}.csv`)}><Download size={16} /></Btn>
-        <Btn variant="ghost" onClick={exportBackup}>JSON</Btn>
+        <div className="relative">
+          <Btn variant="ghost" onClick={() => setShowExportMenu((v) => !v)}><Download size={16} /></Btn>
+          {showExportMenu && (
+            <div className="absolute right-0 mt-1.5 rounded-xl overflow-hidden z-20" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
+              <button onClick={() => { downloadCSV(toCSV(filtered, cardName, personName), `gastos-${period}.csv`); setShowExportMenu(false); }}
+                className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text }}>Planilha (CSV)</button>
+              <button onClick={() => { exportBackup(); setShowExportMenu(false); }}
+                className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>Backup (JSON)</button>
+            </div>
+          )}
+        </div>
       </div>
 
       {isAdmin && (
@@ -998,6 +1039,7 @@ function MemberOverview({ profile, data, refresh }) {
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
       <ScreenHeader title={`Olá, ${profile.name.split(" ")[0]}`} subtitle="Seu mês" />
       <HeroPanel label="Total do mês" value={myMonthTotal} />
+      <IncomeSection profile={profile} data={data} refresh={refresh} />
 
       {myCards.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1009,7 +1051,6 @@ function MemberOverview({ profile, data, refresh }) {
       ) : (
         <Panel><EmptyState icon={<CreditCard size={28} />} text="Você ainda não tem acesso a nenhum cartão." /></Panel>
       )}
-      <IncomeSection profile={profile} data={data} refresh={refresh} />
     </div>
   );
 }
@@ -1026,6 +1067,7 @@ function AdminOverview({ profile, data, refresh }) {
       <ScreenHeader title="Visão geral" subtitle="Este mês" />
       <div className="space-y-4">
         <HeroPanel label="Total do mês" value={totalMonth} />
+        <IncomeSection profile={profile} data={data} refresh={refresh} />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {byPerson.map((p) => (
             <Panel key={p.id}><span className="text-[11px]" style={{ color: C.muted }}>{firstName(p.name)}</span><div className="mt-1"><Amount value={p.total} size="text-lg" /></div></Panel>
@@ -1040,7 +1082,6 @@ function AdminOverview({ profile, data, refresh }) {
           {data.cards.length === 0 && <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão cadastrado ainda." /></Panel>}
         </div>
       </div>
-      <IncomeSection profile={profile} data={data} refresh={refresh} />
     </div>
   );
 }
@@ -1091,16 +1132,47 @@ function AdminCards({ data, refresh }) {
   );
 }
 
+function compactNumber(v) {
+  if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k`;
+  return `${Math.round(v)}`;
+}
+const PERSON_COLOR_MAP = { eduardo: "#10B981", nilvane: "#EC4899" };
+function personColorFor(name, fallbackIndex) {
+  const key = firstName(name).toLowerCase();
+  if (PERSON_COLOR_MAP[key]) return PERSON_COLOR_MAP[key];
+  const fallback = ["#7C3AED", "#3B82F6", "#F59E0B", "#06B6D4"];
+  return fallback[fallbackIndex % fallback.length];
+}
+function monthKeysForPeriod(period, customRange) {
+  const now = currentMonthKey();
+  const map = { "1m": 1, "3m": 3, "6m": 6, "12m": 12 };
+  if (map[period]) return Array.from({ length: map[period] }, (_, i) => addMonthsToKey(now, -i));
+  if (period === "custom" && customRange.start && customRange.end) {
+    const startKey = monthKeyFromDate(customRange.start);
+    const endKey = monthKeyFromDate(customRange.end);
+    const span = diffMonths(startKey, endKey);
+    return Array.from({ length: Math.max(span + 1, 1) }, (_, i) => addMonthsToKey(startKey, i));
+  }
+  return [now];
+}
+function categoryTotalsForMonths(expenses, monthKeys) {
+  return CATEGORIES.map((cat) => {
+    let value = 0;
+    monthKeys.forEach((mk) => { value += expenses.filter((e) => e.category === cat && isDueIn(e, mk)).reduce((s, e) => s + monthlyValue(e), 0); });
+    return { name: cat, value };
+  }).filter((d) => d.value > 0).sort((a, b) => b.value - a.value);
+}
+
 /* ---------------------------------- ADMIN: REPORTS ---------------------------------- */
 
 function AdminReports({ data }) {
   const now = currentMonthKey();
   const prevMonth = addMonthsToKey(now, -1);
-  const dueNow = data.expenses.filter((e) => isDueIn(e, now));
-  const totalMonth = dueNow.reduce((s, e) => s + monthlyValue(e), 0);
-  const byCategory = CATEGORIES.map((cat) => ({ name: cat, value: dueNow.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0) }))
-    .filter((d) => d.value > 0)
-    .sort((a, b) => b.value - a.value);
+  const [period, setPeriod] = useState("month");
+  const [customRange, setCustomRange] = useState({ start: "", end: "" });
+  const monthKeys = monthKeysForPeriod(period, customRange);
+  const byCategory = categoryTotalsForMonths(data.expenses, monthKeys);
+  const totalPeriod = byCategory.reduce((s, d) => s + d.value, 0);
   const comparison = categoryComparison(data.expenses, now, prevMonth);
 
   const months = last6Months();
@@ -1109,17 +1181,17 @@ function AdminReports({ data }) {
     data.profiles.forEach((u) => { row[firstName(u.name)] = data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, mk)).reduce((s, e) => s + monthlyValue(e), 0); });
     return row;
   });
-  const personColors = ["#7C3AED", "#EC4899", "#10B981", "#3B82F6"];
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28 space-y-4">
-      <ScreenHeader title="Relatórios" subtitle="Como está o mês" />
-      <HeroPanel label="Total do mês" value={totalMonth} />
+      <ScreenHeader title="Relatórios" subtitle="Panorama financeiro" />
+      <PeriodFilter value={period} onChange={setPeriod} customRange={customRange} onCustomChange={setCustomRange} />
+      <HeroPanel label={period === "month" ? "Total do mês" : `Total (${periodPresetLabel(period)})`} value={totalPeriod} />
 
       <Panel>
         <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Por categoria</h4>
         {byCategory.length === 0 ? (
-          <EmptyState icon={<PieIcon size={28} />} text="Sem dados neste mês." />
+          <EmptyState icon={<PieIcon size={28} />} text="Sem dados neste período." />
         ) : (
           <div className="relative">
             <ResponsiveContainer width="100%" height={230}>
@@ -1132,7 +1204,7 @@ function AdminReports({ data }) {
             </ResponsiveContainer>
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ top: -8 }}>
               <span className="text-[10px]" style={{ color: C.muted }}>total</span>
-              <span className="text-lg font-extrabold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{brl(totalMonth)}</span>
+              <span className="text-lg font-extrabold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{brl(totalPeriod)}</span>
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1.5 justify-center mt-2">
               {byCategory.map((d) => (
@@ -1179,14 +1251,21 @@ function AdminReports({ data }) {
         <ResponsiveContainer width="100%" height={230}>
           <BarChart data={evolution} barGap={4}>
             <XAxis dataKey="month" stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} />
-            <YAxis stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} tickFormatter={(v) => `${v / 1000}k`} />
+            <YAxis stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} tickFormatter={compactNumber} width={38} />
             <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text }} cursor={{ fill: "rgba(124,58,237,0.06)" }} />
-            <Legend wrapperStyle={{ fontSize: 11, color: C.muted }} />
             {data.profiles.map((u, i) => (
-              <Bar key={u.id} dataKey={firstName(u.name)} radius={[6, 6, 0, 0]} fill={personColors[i % personColors.length]} maxBarSize={22} />
+              <Bar key={u.id} dataKey={firstName(u.name)} radius={[6, 6, 0, 0]} fill={personColorFor(u.name, i)} maxBarSize={22} />
             ))}
           </BarChart>
         </ResponsiveContainer>
+        <div className="flex flex-wrap gap-x-5 gap-y-2 justify-center mt-3">
+          {data.profiles.map((u, i) => (
+            <div key={u.id} className="flex items-center gap-1.5 text-[11px]" style={{ color: C.muted }}>
+              <span className="w-2 h-2 rounded-full" style={{ background: personColorFor(u.name, i) }} />
+              {firstName(u.name)}
+            </div>
+          ))}
+        </div>
       </Panel>
     </div>
   );
@@ -1195,7 +1274,7 @@ function AdminReports({ data }) {
 function FloatingAddButton({ onClick }) {
   return (
     <button onClick={onClick} className="fixed z-40 rounded-full flex items-center justify-center transition-all active:scale-95"
-      style={{ right: 18, bottom: 78, width: 54, height: 54, background: HERO_GRADIENT, boxShadow: "0 10px 24px rgba(76,29,149,0.45)" }}>
+      style={{ right: 18, bottom: "calc(78px + env(safe-area-inset-bottom, 0px))", width: 54, height: 54, background: HERO_GRADIENT, boxShadow: "0 10px 24px rgba(76,29,149,0.45)" }}>
       <Zap size={22} color="#fff" />
     </button>
   );
