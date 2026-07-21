@@ -7,7 +7,7 @@ import {
   CreditCard, Plus, Pencil, Trash2, LogOut, LayoutGrid, Wallet, PieChart as PieIcon,
   ListChecks, X, Check, Lock, ChevronRight, Download, AlertTriangle,
   Repeat, Target, Clock, Sun, Moon, Search, Paperclip, TrendingUp, TrendingDown,
-  DollarSign, CheckSquare, Square, Zap, Share2,
+  DollarSign, CheckSquare, Square, Zap, Share2, Percent,
 } from "lucide-react";
 
 /* ---------------------------------- tokens ---------------------------------- */
@@ -22,6 +22,9 @@ const C = {
 const THEME_CSS = `
 html, body, #root { height: 100%; margin: 0; }
 body { font-family: 'Inter', sans-serif; }
+input[type=range] { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px; outline: none; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 3px solid var(--gold); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.35); }
+input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 3px solid var(--gold); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.35); }
 .theme-dark {
   --bg: #0A0C18; --bg-soft: #10132A; --surface: #151933; --surface-alt: #1C2140;
   --border: rgba(184,147,90,0.14); --border-strong: rgba(184,147,90,0.34);
@@ -247,6 +250,22 @@ function friendlyError(e) {
   if (msg.includes("jwt") || msg.includes("expired") || msg.includes("token")) return "Sua sessão expirou. Saia e entre novamente.";
   if (!msg) return "Não foi possível salvar. Tente novamente.";
   return "Não foi possível salvar. Tente novamente em instantes.";
+}
+
+function Switch({ checked, onChange }) {
+  return (
+    <button type="button" onClick={() => onChange(!checked)} className="relative shrink-0 transition-all" style={{ width: 40, height: 23, borderRadius: 999, background: checked ? C.gold : C.bgSoft, border: `1px solid ${checked ? C.gold : C.border}` }}>
+      <span className="absolute rounded-full transition-all" style={{ width: 17, height: 17, background: "#fff", top: 2, left: checked ? 20 : 2, boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+    </button>
+  );
+}
+function IconField({ icon, ...props }) {
+  return (
+    <div className="relative">
+      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: C.muted }}>{icon}</span>
+      <TextInput {...props} style={{ paddingLeft: 26, ...(props.style || {}) }} />
+    </div>
+  );
 }
 
 /* ---------------------------------- UI atoms ---------------------------------- */
@@ -710,8 +729,8 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
       <p className="text-[10px] font-semibold tracking-wide uppercase mb-2" style={{ color: C.gold }}>Quando</p>
       <Field label="Data da compra"><TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
 
-      <label className="flex items-center gap-2 text-sm mb-3.5" style={{ color: C.text }}>
-        <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)} />
+      <label className="flex items-center gap-2.5 text-sm mb-3.5" style={{ color: C.text }}>
+        <Switch checked={isRecurring} onChange={setIsRecurring} />
         <Repeat size={14} color={C.muted} /> Gasto recorrente (todo mês, ex: assinatura)
       </label>
 
@@ -725,26 +744,39 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
       {!initial && splitCandidates.length > 0 && (
         <div className="mb-3.5">
           <p className="text-[10px] font-semibold tracking-wide uppercase mb-2" style={{ color: C.gold }}>Dividir</p>
-          <label className="flex items-center gap-2 text-sm mb-2" style={{ color: C.text }}>
-            <input type="checkbox" checked={splitEnabled} onChange={(e) => { setSplitEnabled(e.target.checked); if (!splitWith) setSplitWith(splitCandidates[0]?.id || ""); }} />
+          <label className="flex items-center gap-2.5 text-sm mb-2" style={{ color: C.text }}>
+            <Switch checked={splitEnabled} onChange={(v) => { setSplitEnabled(v); if (!splitWith) setSplitWith(splitCandidates[0]?.id || ""); }} />
             Dividir com outra pessoa
           </label>
           {splitEnabled && (
-            <div className="rounded-xl p-3" style={{ background: C.bgSoft, border: `1px solid ${C.border}` }}>
+            <div className="rounded-xl p-3.5" style={{ background: C.bgSoft, border: `1px solid ${C.border}` }}>
               <Field label="Dividir com">
                 <Select value={splitWith} onChange={(e) => setSplitWith(e.target.value)}>
                   {splitCandidates.map((p) => <option key={p.id} value={p.id}>{firstName(p.name)}</option>)}
                 </Select>
               </Field>
+
+              <div className="flex items-center justify-between text-xs mb-1.5" style={{ color: C.text }}>
+                <span className="font-medium">{firstName(people.find((p) => p.id === selectedUserId)?.name || "Você")}</span>
+                <span className="font-medium">{firstName(splitCandidates.find((p) => p.id === splitWith)?.name || "")}</span>
+              </div>
+              <input type="range" min="0" max="100" step="1" value={pct} onChange={(e) => onChangePct(e.target.value)}
+                className="w-full mb-1.5"
+                style={{ background: `linear-gradient(to right, ${C.gold} 0%, ${C.gold} ${pct}%, #7C3AED ${pct}%, #7C3AED 100%)` }} />
+              <div className="flex items-center justify-between text-xs mb-3" style={{ color: C.muted }}>
+                <span>{brl(amountA)}</span>
+                <span>{brl(amountB)}</span>
+              </div>
+
               <div className="grid grid-cols-3 gap-2.5">
-                <Field label={`${firstName(people.find((p) => p.id === selectedUserId)?.name || "Você")} (R$)`}>
-                  <TextInput type="number" step="0.01" value={amountA ? amountA.toFixed(2) : ""} onChange={(e) => onChangeAmountA(e.target.value)} />
+                <Field label={`${firstName(people.find((p) => p.id === selectedUserId)?.name || "Você")}`}>
+                  <IconField icon={<DollarSign size={13} />} type="number" step="0.01" value={amountA ? amountA.toFixed(2) : ""} onChange={(e) => onChangeAmountA(e.target.value)} />
                 </Field>
-                <Field label="Sua parte (%)">
-                  <TextInput type="number" min="0" max="100" value={splitPct} onChange={(e) => onChangePct(e.target.value)} />
+                <Field label="Sua parte">
+                  <IconField icon={<Percent size={13} />} type="number" min="0" max="100" value={splitPct} onChange={(e) => onChangePct(e.target.value)} />
                 </Field>
-                <Field label={`${firstName(splitCandidates.find((p) => p.id === splitWith)?.name || "")} (R$)`}>
-                  <TextInput type="number" step="0.01" value={amountB ? amountB.toFixed(2) : ""} onChange={(e) => onChangeAmountB(e.target.value)} />
+                <Field label={`${firstName(splitCandidates.find((p) => p.id === splitWith)?.name || "")}`}>
+                  <IconField icon={<DollarSign size={13} />} type="number" step="0.01" value={amountB ? amountB.toFixed(2) : ""} onChange={(e) => onChangeAmountB(e.target.value)} />
                 </Field>
               </div>
             </div>
@@ -815,8 +847,8 @@ function CardForm({ allProfiles, onSave, onClose, initial }) {
       <Field label="Quem tem acesso a este cartão">
         <div className="flex flex-col gap-2 mt-1">
           {allProfiles.map((u) => (
-            <label key={u.id} className="flex items-center gap-2 text-sm" style={{ color: C.text }}>
-              <input type="checkbox" checked={memberIds.includes(u.id)} onChange={() => toggle(u.id)} />
+            <label key={u.id} className="flex items-center gap-2.5 text-sm" style={{ color: C.text }}>
+              <Switch checked={memberIds.includes(u.id)} onChange={() => toggle(u.id)} />
               {firstName(u.name)}
             </label>
           ))}
@@ -943,8 +975,8 @@ function IncomeForm({ profileId, onSave, onClose, initial }) {
       <Field label="Descrição"><TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: Salário" /></Field>
       <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00" /></Field>
       <Field label="Data"><TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-      <label className="flex items-center gap-2 text-sm mb-3.5" style={{ color: C.text }}>
-        <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)} />
+      <label className="flex items-center gap-2.5 text-sm mb-3.5" style={{ color: C.text }}>
+        <Switch checked={isRecurring} onChange={setIsRecurring} />
         <Repeat size={14} color={C.muted} /> Receita recorrente (todo mês)
       </label>
       {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
@@ -1348,16 +1380,18 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
         </div>
       )}
 
-      <div className="flex gap-1.5 mb-3">
-        <button onClick={() => setViewMode("faturas")} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-          style={{ background: viewMode === "faturas" ? C.gold : "transparent", color: viewMode === "faturas" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "faturas" ? C.gold : C.border}` }}>
-          Faturas
-        </button>
-        <button onClick={() => setViewMode("lista")} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-          style={{ background: viewMode === "lista" ? C.gold : "transparent", color: viewMode === "lista" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "lista" ? C.gold : C.border}` }}>
-          Buscar tudo
-        </button>
-      </div>
+      {viewMode === "lista" && (
+        <div className="flex gap-1.5 mb-3">
+          <button onClick={() => setViewMode("faturas")} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+            style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}` }}>
+            Faturas
+          </button>
+          <button onClick={() => setViewMode("lista")} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+            style={{ background: C.gold, color: "#1A1607", border: `1px solid ${C.gold}` }}>
+            Buscar tudo
+          </button>
+        </div>
+      )}
 
       {viewMode === "faturas" && (() => {
         const scopedExpenses = baseExpenses.filter((e) => !isAdmin || filterPerson === "all" || e.profile_id === filterPerson);
@@ -1374,19 +1408,30 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
           <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão disponível." /></Panel>
         ) : (
           <>
-            <div ref={carouselRef} onMouseDown={onCarouselMouseDown} onMouseMove={onCarouselMouseMove} onMouseUp={stopDrag} onMouseLeave={stopDrag}
-              className="flex gap-1.5 overflow-x-auto mb-3 pb-1 select-none" style={{ scrollbarWidth: "none", cursor: "grab", WebkitOverflowScrolling: "touch" }}>
-              {months.map((mk) => {
-                const active = mk === selectedMonth;
-                const status = singleCard ? invoiceStatusInfo(singleCard, mk) : null;
-                const tone = status?.tone === "green" ? C.green : status?.tone === "amber" ? C.amber : C.muted;
-                return (
-                  <button key={mk} onClick={() => setSelectedMonth(mk)} className="shrink-0 px-3.5 py-2 rounded-xl text-xs font-medium transition-all capitalize"
-                    style={{ background: active ? C.gold : "transparent", color: active ? "#1A1607" : tone, border: `1px solid ${active ? C.gold : C.border}` }}>
-                    {monthLabel(mk)}
-                  </button>
-                );
-              })}
+            <div className="flex gap-1.5 mb-3 items-center">
+              <button onClick={() => setViewMode("faturas")} className="shrink-0 px-3 py-2 rounded-lg text-xs font-medium transition-all"
+                style={{ background: C.gold, color: "#1A1607", border: `1px solid ${C.gold}` }}>
+                Faturas
+              </button>
+              <button onClick={() => setViewMode("lista")} className="shrink-0 px-3 py-2 rounded-lg text-xs font-medium transition-all"
+                style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}` }}>
+                Buscar tudo
+              </button>
+              <div className="w-px h-5 shrink-0" style={{ background: C.border }} />
+              <div ref={carouselRef} onMouseDown={onCarouselMouseDown} onMouseMove={onCarouselMouseMove} onMouseUp={stopDrag} onMouseLeave={stopDrag}
+                className="flex gap-1.5 overflow-x-auto flex-1 pb-1 select-none" style={{ scrollbarWidth: "none", cursor: "grab", WebkitOverflowScrolling: "touch" }}>
+                {months.map((mk) => {
+                  const active = mk === selectedMonth;
+                  const status = singleCard ? invoiceStatusInfo(singleCard, mk) : null;
+                  const tone = status?.tone === "green" ? C.green : status?.tone === "amber" ? C.amber : C.muted;
+                  return (
+                    <button key={mk} onClick={() => setSelectedMonth(mk)} className="shrink-0 px-3.5 py-2 rounded-xl text-xs font-medium transition-all capitalize"
+                      style={{ background: active ? C.gold : "transparent", color: active ? "#1A1607" : tone, border: `1px solid ${active ? C.gold : C.border}` }}>
+                      {monthLabel(mk)}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <HeroPanel
@@ -1487,7 +1532,7 @@ function roundRectPath(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
 }
-function drawSummaryCanvas({ name, monthLabelStr, total, saldo, categories }) {
+function drawSummaryCanvas({ heading, monthLabelStr, total, saldo, categories }) {
   const canvas = document.createElement("canvas");
   canvas.width = 800; canvas.height = 1000;
   const ctx = canvas.getContext("2d");
@@ -1505,7 +1550,7 @@ function drawSummaryCanvas({ name, monthLabelStr, total, saldo, categories }) {
 
   ctx.fillStyle = "#fff";
   ctx.font = "800 46px sans-serif";
-  ctx.fillText(`Olá, ${name}`, 50, 160);
+  ctx.fillText(heading, 50, 160);
   ctx.fillStyle = "rgba(255,255,255,0.75)";
   ctx.font = "400 24px sans-serif";
   ctx.fillText(monthLabelStr, 50, 195);
@@ -1564,15 +1609,18 @@ function MemberOverview({ profile, data, refresh }) {
     const categories = allCategoryNames(dueNow)
       .map((cat) => ({ name: cat, value: dueNow.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0), color: getCategoryColor(cat) }))
       .filter((c) => c.value > 0).sort((a, b) => b.value - a.value);
-    shareSummaryImage({ name: firstName(profile.name), monthLabelStr: monthLabel(now), total: myMonthTotal, saldo: myIncomeMonth - myMonthTotal, categories });
+    shareSummaryImage({ heading: `Olá, ${firstName(profile.name)}`, monthLabelStr: monthLabel(now), total: myMonthTotal, saldo: myIncomeMonth - myMonthTotal, categories });
   };
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <ScreenHeader title={`Olá, ${profile.name.split(" ")[0]}`} subtitle="Seu mês" />
+      <div className="flex items-center justify-between">
+        <ScreenHeader title={`Olá, ${profile.name.split(" ")[0]}`} subtitle="Seu mês" />
+        <button onClick={handleShare} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mb-4" style={{ border: `1px solid ${C.border}` }}>
+          <Share2 size={15} color={C.gold} />
+        </button>
+      </div>
       <HeroPanel label="Total do mês" value={myMonthTotal} />
-      <Btn variant="ghost" full onClick={handleShare}><Share2 size={15} /> Compartilhar resumo do mês</Btn>
-      <div className="h-4" />
       <IncomeSection profile={profile} data={data} refresh={refresh} />
 
       {myCards.length > 0 ? (
@@ -1597,21 +1645,48 @@ function AdminOverview({ profile, data, refresh }) {
   const byPerson = data.profiles.map((u) => ({ ...u, total: data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0) }));
   const adminIncomeMonth = (data.incomes || []).filter((i) => i.profile_id === profile.id && isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
   const adminExpenseMonth = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
+  const [showShareMenu, setShowShareMenu] = useState(false);
 
-  const handleShare = () => {
-    const dueNow = data.expenses.filter((e) => isDueIn(e, now));
+  const shareScope = (scopeIds, heading) => {
+    setShowShareMenu(false);
+    const dueNow = data.expenses.filter((e) => isDueIn(e, now) && (!scopeIds || scopeIds.includes(e.profile_id)));
     const categories = allCategoryNames(dueNow)
       .map((cat) => ({ name: cat, value: dueNow.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0), color: getCategoryColor(cat) }))
       .filter((c) => c.value > 0).sort((a, b) => b.value - a.value);
-    shareSummaryImage({ name: firstName(profile.name), monthLabelStr: monthLabel(now), total: totalMonth, saldo: adminIncomeMonth - adminExpenseMonth, categories });
+    const total = dueNow.reduce((s, e) => s + monthlyValue(e), 0);
+    const scopedIncome = (data.incomes || []).filter((i) => isIncomeDueIn(i, now) && (!scopeIds || scopeIds.includes(i.profile_id))).reduce((s, i) => s + incomeMonthlyValue(i), 0);
+    shareSummaryImage({ heading, monthLabelStr: monthLabel(now), total, saldo: scopedIncome - total, categories });
   };
+  const others = data.profiles.filter((p) => p.id !== profile.id);
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <ScreenHeader title="Visão geral" subtitle="Este mês" />
+      <div className="flex items-center justify-between">
+        <ScreenHeader title="Visão geral" subtitle="Este mês" />
+        <div className="relative shrink-0 mb-4">
+          <button onClick={() => setShowShareMenu((v) => !v)} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.border}` }}>
+            <Share2 size={15} color={C.gold} />
+          </button>
+          {showShareMenu && (
+            <div className="absolute right-0 mt-1.5 rounded-xl overflow-hidden z-20" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
+              <button onClick={() => shareScope(null, "Resumo geral")} className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text }}>Todos</button>
+              <button onClick={() => shareScope([profile.id], `Olá, ${firstName(profile.name)}`)} className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>Só eu</button>
+              {others.map((p) => (
+                <button key={`only-${p.id}`} onClick={() => shareScope([p.id], `Resumo de ${firstName(p.name)}`)} className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>
+                  Só {firstName(p.name)}
+                </button>
+              ))}
+              {others.map((p) => (
+                <button key={`with-${p.id}`} onClick={() => shareScope([profile.id, p.id], `Resumo de ${firstName(profile.name)} e ${firstName(p.name)}`)} className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>
+                  Eu e {firstName(p.name)}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
       <div className="space-y-4">
         <HeroPanel label="Total do mês" value={totalMonth} />
-        <Btn variant="ghost" full onClick={handleShare}><Share2 size={15} /> Compartilhar resumo do mês</Btn>
         <IncomeSection profile={profile} data={data} refresh={refresh} />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {byPerson.map((p) => (
