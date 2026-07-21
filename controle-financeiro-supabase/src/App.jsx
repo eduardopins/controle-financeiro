@@ -864,19 +864,40 @@ function IncomeSection({ profile, data, refresh }) {
   const handleDelete = async (inc) => { await deleteIncome(inc); await refresh(); };
 
   return (
-    <Panel className="mb-4" style={{ border: `1px solid ${saldo < 0 ? "rgba(168,80,79,0.35)" : "rgba(47,122,92,0.3)"}` }}>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <span className="text-[11px]" style={{ color: C.muted }}>saldo do mês</span>
-          <div><Amount value={saldo} size="text-2xl" tone={saldo < 0 ? "rose" : "green"} /></div>
+    <Panel className="mb-4" style={{
+      background: `linear-gradient(160deg, ${saldo < 0 ? "rgba(168,80,79,0.10)" : "rgba(47,122,92,0.10)"}, ${C.surface} 55%)`,
+      border: `1px solid ${saldo < 0 ? "rgba(168,80,79,0.32)" : "rgba(47,122,92,0.28)"}`,
+    }}>
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: saldo < 0 ? "rgba(168,80,79,0.16)" : "rgba(47,122,92,0.16)" }}>
+            {saldo < 0 ? <TrendingDown size={19} color={C.rose} /> : <TrendingUp size={19} color={C.green} />}
+          </div>
+          <div>
+            <span className="text-[11px]" style={{ color: C.muted }}>saldo do mês</span>
+            <div><Amount value={saldo} size="text-2xl" tone={saldo < 0 ? "rose" : "green"} /></div>
+          </div>
         </div>
-        <button onClick={() => setShowForm(true)} className="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2" style={{ background: C.gold, color: "#1A1607" }}>
+        <button onClick={() => setShowForm(true)} className="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2 shrink-0" style={{ background: C.gold, color: "#1A1607" }}>
           <Plus size={14} /> Receita
         </button>
       </div>
-      <div className="flex items-center gap-1.5 text-xs pb-3" style={{ color: C.muted, borderBottom: `1px solid ${C.border}` }}>
-        <DollarSign size={12} /> entrou {brl(incomeMonth)} · saiu {brl(expenseMonth)}
+
+      <div className="grid grid-cols-2 gap-2.5 pb-4" style={{ borderBottom: `1px solid ${C.border}` }}>
+        <div className="rounded-xl px-3 py-2.5" style={{ background: C.bgSoft }}>
+          <div className="flex items-center gap-1.5 text-[10px] mb-1" style={{ color: C.muted }}>
+            <TrendingUp size={11} color={C.green} /> entrou
+          </div>
+          <Amount value={incomeMonth} size="text-sm" tone="green" />
+        </div>
+        <div className="rounded-xl px-3 py-2.5" style={{ background: C.bgSoft }}>
+          <div className="flex items-center gap-1.5 text-[10px] mb-1" style={{ color: C.muted }}>
+            <TrendingDown size={11} color={C.rose} /> saiu
+          </div>
+          <Amount value={expenseMonth} size="text-sm" tone="rose" />
+        </div>
       </div>
+
       {myIncomes.length > 0 && (
         <div className="space-y-2.5 pt-3">
           {myIncomes.sort((a, b) => b.income_date.localeCompare(a.income_date)).map((inc) => (
