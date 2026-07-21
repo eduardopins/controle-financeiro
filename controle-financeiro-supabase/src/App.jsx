@@ -344,15 +344,19 @@ async function saveCard(card) {
     if (error) throw error;
     cardId = data.id;
   } else {
-    await supabase.from("cards").update(rest).eq("id", cardId);
+    const { error } = await supabase.from("cards").update(rest).eq("id", cardId);
+    if (error) throw error;
   }
-  await supabase.from("card_access").delete().eq("card_id", cardId);
+  const { error: delErr } = await supabase.from("card_access").delete().eq("card_id", cardId);
+  if (delErr) throw delErr;
   if (memberIds.length) {
-    await supabase.from("card_access").insert(memberIds.map((profile_id) => ({ card_id: cardId, profile_id })));
+    const { error: accErr } = await supabase.from("card_access").insert(memberIds.map((profile_id) => ({ card_id: cardId, profile_id })));
+    if (accErr) throw accErr;
   }
 }
 async function deleteCard(card) {
-  await supabase.from("cards").delete().eq("id", card.id);
+  const { error } = await supabase.from("cards").delete().eq("id", card.id);
+  if (error) throw error;
 }
 async function saveExpense(exp) {
   const isNew = !exp.id;
@@ -361,14 +365,18 @@ async function saveExpense(exp) {
     total_amount: exp.totalAmount, purchase_date: exp.date, first_month: exp.firstMonth,
     installments: exp.installments, is_recurring: exp.isRecurring,
   };
-  if (isNew) await supabase.from("expenses").insert(payload);
-  else await supabase.from("expenses").update(payload).eq("id", exp.id);
+  const { error } = isNew
+    ? await supabase.from("expenses").insert(payload)
+    : await supabase.from("expenses").update(payload).eq("id", exp.id);
+  if (error) throw error;
 }
 async function deleteExpense(exp) {
-  await supabase.from("expenses").delete().eq("id", exp.id);
+  const { error } = await supabase.from("expenses").delete().eq("id", exp.id);
+  if (error) throw error;
 }
 async function saveBudget(profileId, category, monthly_limit) {
-  await supabase.from("budgets").upsert({ profile_id: profileId, category, monthly_limit }, { onConflict: "profile_id,category" });
+  const { error } = await supabase.from("budgets").upsert({ profile_id: profileId, category, monthly_limit }, { onConflict: "profile_id,category" });
+  if (error) throw error;
 }
 
 /* ---------------------------------- LOGIN ---------------------------------- */
@@ -450,16 +458,24 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial }) {
   const [date, setDate] = useState(initial?.purchase_date || new Date().toISOString().slice(0, 10));
   const [installments, setInstallments] = useState(initial?.installments || 1);
   const [isRecurring, setIsRecurring] = useState(initial?.is_recurring || false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
 
-  const submit = () => {
+  const submit = async () => {
     if (!cardId || !description.trim() || !totalAmount) return;
-    onSave({
-      id: initial?.id, cardId, userId, category, description: description.trim(),
-      totalAmount: parseFloat(totalAmount), date, firstMonth: monthKeyFromDate(date),
-      installments: isRecurring ? 1 : Math.max(1, parseInt(installments) || 1),
-      isRecurring,
-    });
-    onClose();
+    setSaving(true); setErr("");
+    try {
+      await onSave({
+        id: initial?.id, cardId, userId, category, description: description.trim(),
+        totalAmount: parseFloat(totalAmount), date, firstMonth: monthKeyFromDate(date),
+        installments: isRecurring ? 1 : Math.max(1, parseInt(installments) || 1),
+        isRecurring,
+      });
+      onClose();
+    } catch (e) {
+      setSaving(false);
+      setErr(e?.message || "Não foi possível salvar. Verifique sua conexão e tente de novo.");
+    }
   };
 
   return (
@@ -491,7 +507,8 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial }) {
       {!isRecurring && installments > 1 && totalAmount && (
         <p className="text-xs mb-3" style={{ color: C.muted }}>{installments}x de <b style={{ color: C.goldSoft }}>{brl(totalAmount / installments)}</b></p>
       )}
-      <Btn full onClick={submit} disabled={!cardId}>Salvar gasto</Btn>
+      {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
+      <Btn full onClick={submit} disabled={!cardId || saving}>{saving ? "Salvando..." : "Salvar gasto"}</Btn>
     </Modal>
   );
 }
@@ -504,12 +521,20 @@ function CardForm({ allProfiles, onSave, onClose, initial }) {
   const [closingDay, setClosingDay] = useState(initial?.closing_day || 1);
   const [dueDay, setDueDay] = useState(initial?.due_day || 10);
   const [memberIds, setMemberIds] = useState(initial?.memberIds || []);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
   const toggle = (id) => setMemberIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
 
-  const submit = () => {
+  const submit = async () => {
     if (!name.trim() || !limit) return;
-    onSave({ id: initial?.id, name: name.trim(), card_limit: parseFloat(limit), closing_day: parseInt(closingDay), due_day: parseInt(dueDay), memberIds });
-    onClose();
+    setSaving(true); setErr("");
+    try {
+      await onSave({ id: initial?.id, name: name.trim(), card_limit: parseFloat(limit), closing_day: parseInt(closingDay), due_day: parseInt(dueDay), memberIds });
+      onClose();
+    } catch (e) {
+      setSaving(false);
+      setErr(e?.message || "Não foi possível salvar. Verifique sua conexão e tente de novo.");
+    }
   };
 
   return (
@@ -538,7 +563,8 @@ function CardForm({ allProfiles, onSave, onClose, initial }) {
           ))}
         </div>
       </Field>
-      <Btn full onClick={submit}>Salvar cartão</Btn>
+      {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
+      <Btn full onClick={submit} disabled={saving}>{saving ? "Salvando..." : "Salvar cartão"}</Btn>
     </Modal>
   );
 }
