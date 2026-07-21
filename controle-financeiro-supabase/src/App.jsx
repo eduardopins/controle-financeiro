@@ -112,6 +112,33 @@ function periodToRange(period, custom) {
   return { start: `${startDate.getFullYear()}-${pad(startDate.getMonth() + 1)}-${pad(startDate.getDate())}`, end };
 }
 
+const BANK_BRANDS = {
+  "nubank": { label: "Nubank", color: "#8A05BE", mono: "NU" },
+  "itau": { label: "Itaú", color: "#EC7000", mono: "IT" },
+  "itaú": { label: "Itaú", color: "#EC7000", mono: "IT" },
+  "inter": { label: "Inter", color: "#FF7A00", mono: "IN" },
+  "bradesco": { label: "Bradesco", color: "#CC092F", mono: "BR" },
+  "santander": { label: "Santander", color: "#EC0000", mono: "SA" },
+  "banco do brasil": { label: "Banco do Brasil", color: "#F8D117", mono: "BB", darkText: true },
+  "caixa": { label: "Caixa", color: "#0070AD", mono: "CX" },
+  "c6": { label: "C6 Bank", color: "#242424", mono: "C6" },
+  "picpay": { label: "PicPay", color: "#21C25E", mono: "PP" },
+  "mercado pago": { label: "Mercado Pago", color: "#00AAFF", mono: "MP" },
+  "next": { label: "Next", color: "#00E28A", mono: "NX", darkText: true },
+  "xp": { label: "XP", color: "#000000", mono: "XP" },
+  "neon": { label: "Neon", color: "#00D2C3", mono: "NE", darkText: true },
+  "will": { label: "Will Bank", color: "#FFD200", mono: "WB", darkText: true },
+  "original": { label: "Banco Original", color: "#00A868", mono: "OR" },
+  "btg": { label: "BTG Pactual", color: "#0B2545", mono: "BT" },
+};
+function detectBank(name) {
+  const n = (name || "").toLowerCase();
+  for (const key of Object.keys(BANK_BRANDS)) {
+    if (n.includes(key)) return BANK_BRANDS[key];
+  }
+  return null;
+}
+
 /* ---------------------------------- font injection ---------------------------------- */
 
 function useFonts() {
@@ -464,6 +491,14 @@ function CardForm({ allProfiles, onSave, onClose, initial }) {
   return (
     <Modal title={initial ? "Editar cartão" : "Novo cartão"} onClose={onClose}>
       <Field label="Nome do cartão"><TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Nubank Roxinho" /></Field>
+      {detectBank(name) && (
+        <div className="flex items-center gap-2 -mt-2.5 mb-3.5 text-xs" style={{ color: C.muted }}>
+          <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0" style={{ background: detectBank(name).color }}>
+            <span style={{ fontSize: 7, fontWeight: 700, color: detectBank(name).darkText ? "#1A1607" : "#FFFFFF" }}>{detectBank(name).mono}</span>
+          </div>
+          Identificamos: {detectBank(name).label}
+        </div>
+      )}
       <Field label="Limite total (R$)"><TextInput type="number" step="0.01" value={limit} onChange={(e) => setLimit(e.target.value)} /></Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Dia de fechamento"><TextInput type="number" min="1" max="31" value={closingDay} onChange={(e) => setClosingDay(e.target.value)} /></Field>
@@ -490,14 +525,21 @@ function CardWidget({ card, used }) {
   const pct = card.card_limit ? (used / card.card_limit) * 100 : 0;
   const tone = pct > 85 ? "rose" : pct > 60 ? "gold" : "green";
   const { status, daysUntilDue } = billingInfo(card);
+  const brand = detectBank(card.name);
   return (
-    <div className="rounded-2xl p-4 relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${C.surfaceAlt}, ${C.bgSoft})`, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
+    <div className="rounded-2xl p-4 relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${C.surfaceAlt}, ${C.bgSoft})`, border: `1px solid ${C.borderStrong}`, borderLeft: brand ? `4px solid ${brand.color}` : `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
       <div className="flex items-center justify-between mb-3">
         <span className="text-sm font-medium" style={{ color: C.text, fontFamily: "'Fraunces', serif" }}>{card.name}</span>
         <div className="flex items-center gap-1.5">
           {pct >= 80 && <Chip tone="rose" icon={<AlertTriangle size={10} />}>{pct.toFixed(0)}%</Chip>}
           {daysUntilDue <= 5 && <Chip tone="amber" icon={<Clock size={10} />}>{daysUntilDue}d</Chip>}
-          <CreditCard size={16} color={C.gold} />
+          {brand ? (
+            <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={{ background: brand.color }} title={brand.label}>
+              <span style={{ fontSize: 9, fontWeight: 700, color: brand.darkText ? "#1A1607" : "#FFFFFF", fontFamily: "'Fraunces', serif" }}>{brand.mono}</span>
+            </div>
+          ) : (
+            <CreditCard size={16} color={C.gold} />
+          )}
         </div>
       </div>
       <div className="flex items-baseline justify-between mb-1.5">
