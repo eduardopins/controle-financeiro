@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./lib/supabaseClient";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
@@ -1015,6 +1015,25 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [bulkSaving, setBulkSaving] = useState(false);
 
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const carouselRef = useRef(null);
+  const dragState = useRef({ isDown: false, startX: 0, scrollLeft: 0 });
+  const onCarouselMouseDown = (e) => {
+    const el = carouselRef.current;
+    if (!el) return;
+    dragState.current = { isDown: true, startX: e.pageX - el.offsetLeft, scrollLeft: el.scrollLeft };
+    el.style.cursor = "grabbing";
+  };
+  const stopDrag = () => {
+    dragState.current.isDown = false;
+    if (carouselRef.current) carouselRef.current.style.cursor = "grab";
+  };
+  const onCarouselMouseMove = (e) => {
+    const el = carouselRef.current;
+    if (!el || !dragState.current.isDown) return;
+    e.preventDefault();
+    const x = e.pageX - el.offsetLeft;
+    el.scrollLeft = dragState.current.scrollLeft - (x - dragState.current.startX);
+  };
   const [viewMode, setViewMode] = useState("faturas");
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
 
@@ -1097,7 +1116,8 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
           <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão disponível." /></Panel>
         ) : (
           <>
-            <div className="flex gap-1.5 overflow-x-auto mb-3 pb-1" style={{ scrollbarWidth: "none" }}>
+            <div ref={carouselRef} onMouseDown={onCarouselMouseDown} onMouseMove={onCarouselMouseMove} onMouseUp={stopDrag} onMouseLeave={stopDrag}
+              className="flex gap-1.5 overflow-x-auto mb-3 pb-1 select-none" style={{ scrollbarWidth: "none", cursor: "grab", WebkitOverflowScrolling: "touch" }}>
               {months.map((mk) => {
                 const active = mk === selectedMonth;
                 const status = singleCard ? invoiceStatusInfo(singleCard, mk) : null;
