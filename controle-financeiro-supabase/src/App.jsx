@@ -125,7 +125,7 @@ function Field({ label, children }) {
   return <label className="block mb-3.5"><span className="block text-xs mb-1.5 tracking-wide" style={{ color: C.muted }}>{label}</span>{children}</label>;
 }
 const inputStyle = { background: C.bgSoft, border: `1px solid ${C.border}`, color: C.text };
-const inputClass = "w-full rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-1";
+const inputClass = "w-full rounded-lg px-3 py-2.5 text-base outline-none focus:ring-1";
 function TextInput(props) { return <input {...props} className={inputClass} style={{ ...inputStyle, ...(props.style || {}) }} />; }
 function Select(props) { return <select {...props} className={inputClass} style={inputStyle} />; }
 function Modal({ title, onClose, children }) {
