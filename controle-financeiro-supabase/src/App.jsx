@@ -6,7 +6,8 @@ import {
 import {
   CreditCard, Plus, Pencil, Trash2, LogOut, LayoutGrid, Wallet, PieChart as PieIcon,
   ListChecks, X, Check, Lock, ChevronRight, Download, AlertTriangle,
-  Repeat, Target, Clock, Sun, Moon,
+  Repeat, Target, Clock, Sun, Moon, Search, Paperclip, TrendingUp, TrendingDown,
+  DollarSign, CheckSquare, Square, Zap,
 } from "lucide-react";
 
 /* ---------------------------------- tokens ---------------------------------- */
@@ -112,6 +113,30 @@ function periodToRange(period, custom) {
   const monthsBack = { "1m": 1, "3m": 3, "6m": 6, "12m": 12 }[period];
   const startDate = new Date(today.getFullYear(), today.getMonth() - monthsBack, today.getDate());
   return { start: `${startDate.getFullYear()}-${pad(startDate.getMonth() + 1)}-${pad(startDate.getDate())}`, end };
+}
+
+function isIncomeDueIn(inc, monthKey) {
+  const idx = diffMonths(inc.first_month, monthKey);
+  if (inc.is_recurring) return idx >= 0;
+  return idx === 0;
+}
+function nextInvoiceProjection(cardId, expenses, nowKey = currentMonthKey()) {
+  const nextKey = addMonthsToKey(nowKey, 1);
+  return expenses.filter((e) => e.card_id === cardId && isDueIn(e, nextKey)).reduce((s, e) => s + monthlyValue(e), 0);
+}
+function categoryComparison(expenses, thisKey, prevKey) {
+  return CATEGORIES.map((cat) => {
+    const current = expenses.filter((e) => e.category === cat && isDueIn(e, thisKey)).reduce((s, e) => s + monthlyValue(e), 0);
+    const previous = expenses.filter((e) => e.category === cat && isDueIn(e, prevKey)).reduce((s, e) => s + monthlyValue(e), 0);
+    return { category: cat, current, previous };
+  }).filter((d) => d.current > 0 || d.previous > 0);
+}
+function downloadJSON(obj, filename) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
 }
 
 const BANK_BRANDS = {
@@ -328,12 +353,13 @@ function BottomNav({ tabs, tab, setTab }) {
 /* ---------------------------------- data layer (Supabase) ---------------------------------- */
 
 async function loadAll() {
-  const [profiles, cards, cardAccess, expenses, budgets] = await Promise.all([
+  const [profiles, cards, cardAccess, expenses, budgets, incomes] = await Promise.all([
     supabase.from("profiles").select("*"),
     supabase.from("cards").select("*"),
     supabase.from("card_access").select("*"),
     supabase.from("expenses").select("*"),
     supabase.from("budgets").select("*"),
+    supabase.from("incomes").select("*"),
   ]);
   const cardsWithMembers = (cards.data || []).map((c) => ({
     ...c,
@@ -344,6 +370,7 @@ async function loadAll() {
     cards: cardsWithMembers,
     expenses: expenses.data || [],
     budgets: budgets.data || [],
+    incomes: incomes.data || [],
   };
 }
 
@@ -370,12 +397,19 @@ async function deleteCard(card) {
   const { error } = await supabase.from("cards").delete().eq("id", card.id);
   if (error) throw error;
 }
+async function uploadReceipt(file, profileId) {
+  const path = `${profileId}/${Date.now()}_${file.name}`.replace(/\s+/g, "_");
+  const { error } = await supabase.storage.from("receipts").upload(path, file);
+  if (error) throw error;
+  const { data } = supabase.storage.from("receipts").getPublicUrl(path);
+  return data.publicUrl;
+}
 async function saveExpense(exp) {
   const isNew = !exp.id;
   const payload = {
     card_id: exp.cardId, profile_id: exp.userId, category: exp.category, description: exp.description,
     total_amount: exp.totalAmount, purchase_date: exp.date, first_month: exp.firstMonth,
-    installments: exp.installments, is_recurring: exp.isRecurring,
+    installments: exp.installments, is_recurring: exp.isRecurring, receipt_url: exp.receiptUrl ?? null,
   };
   const { error } = isNew
     ? await supabase.from("expenses").insert(payload)
@@ -388,6 +422,20 @@ async function deleteExpense(exp) {
 }
 async function saveBudget(profileId, category, monthly_limit) {
   const { error } = await supabase.from("budgets").upsert({ profile_id: profileId, category, monthly_limit }, { onConflict: "profile_id,category" });
+  if (error) throw error;
+}
+async function saveIncome(inc) {
+  const payload = {
+    profile_id: inc.profileId, description: inc.description, amount: inc.amount,
+    income_date: inc.date, first_month: monthKeyFromDate(inc.date), is_recurring: inc.isRecurring,
+  };
+  const { error } = inc.id
+    ? await supabase.from("incomes").update(payload).eq("id", inc.id)
+    : await supabase.from("incomes").insert(payload);
+  if (error) throw error;
+}
+async function deleteIncome(inc) {
+  const { error } = await supabase.from("incomes").delete().eq("id", inc.id);
   if (error) throw error;
 }
 
@@ -470,6 +518,8 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial }) {
   const [date, setDate] = useState(initial?.purchase_date || new Date().toISOString().slice(0, 10));
   const [installments, setInstallments] = useState(initial?.installments || 1);
   const [isRecurring, setIsRecurring] = useState(initial?.is_recurring || false);
+  const [receiptFile, setReceiptFile] = useState(null);
+  const [existingReceipt, setExistingReceipt] = useState(initial?.receipt_url || null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -477,11 +527,13 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial }) {
     if (!cardId || !description.trim() || !totalAmount) return;
     setSaving(true); setErr("");
     try {
+      let receiptUrl = existingReceipt;
+      if (receiptFile) receiptUrl = await uploadReceipt(receiptFile, userId);
       await onSave({
         id: initial?.id, cardId, userId, category, description: description.trim(),
         totalAmount: parseFloat(totalAmount), date, firstMonth: monthKeyFromDate(date),
         installments: isRecurring ? 1 : Math.max(1, parseInt(installments) || 1),
-        isRecurring,
+        isRecurring, receiptUrl,
       });
       onClose();
     } catch (e) {
@@ -520,6 +572,18 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial }) {
         <p className="text-xs mb-3" style={{ color: C.muted }}>{installments}x de <b style={{ color: C.goldSoft }}>{brl(totalAmount / installments)}</b></p>
       )}
       {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
+      <Field label="Comprovante (opcional)">
+        {existingReceipt && !receiptFile && (
+          <div className="flex items-center justify-between mb-2 text-xs" style={{ color: C.muted }}>
+            <a href={existingReceipt} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 underline" style={{ color: C.gold }}>
+              <Paperclip size={12} /> Ver comprovante atual
+            </a>
+            <button onClick={() => setExistingReceipt(null)}><X size={13} color={C.rose} /></button>
+          </div>
+        )}
+        <input type="file" accept="image/*,application/pdf" onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
+          className="text-xs" style={{ color: C.muted }} />
+      </Field>
       <Btn full onClick={submit} disabled={!cardId || saving}>{saving ? "Salvando..." : "Salvar gasto"}</Btn>
     </Modal>
   );
@@ -583,7 +647,7 @@ function CardForm({ allProfiles, onSave, onClose, initial }) {
 
 /* ---------------------------------- CARD WIDGET ---------------------------------- */
 
-function CardWidget({ card, used }) {
+function CardWidget({ card, used, nextAmount }) {
   const pct = card.card_limit ? (used / card.card_limit) * 100 : 0;
   const tone = pct > 85 ? "rose" : pct > 60 ? "gold" : "green";
   const { status, daysUntilDue } = billingInfo(card);
@@ -630,6 +694,11 @@ function CardWidget({ card, used }) {
         <div className="mt-2 text-[10px]" style={{ color: C.muted }}>
           fatura {status} · fecha dia {card.closing_day}
         </div>
+        {nextAmount > 0 && (
+          <div className="mt-1.5 text-[11px] flex items-center gap-1" style={{ color: C.muted }}>
+            <TrendingUp size={11} /> próxima fatura ~ {brl(nextAmount)}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -637,13 +706,19 @@ function CardWidget({ card, used }) {
 
 /* ---------------------------------- EXPENSE ROW ---------------------------------- */
 
-function ExpenseRow({ exp, cardName, personName, onEdit, onDelete, showPerson }) {
+function ExpenseRow({ exp, cardName, personName, onEdit, onDelete, showPerson, selectable, selected, onToggleSelect }) {
   return (
     <div className="flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}` }}>
+      {selectable && (
+        <button onClick={() => onToggleSelect(exp.id)} className="shrink-0">
+          {selected ? <CheckSquare size={16} color={C.gold} /> : <Square size={16} color={C.muted} />}
+        </button>
+      )}
       <div className="w-2 h-2 rounded-full shrink-0" style={{ background: CAT_COLORS[exp.category] }} />
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium truncate flex items-center gap-1.5" style={{ color: C.text }}>
           {exp.description}{exp.is_recurring && <Repeat size={11} color={C.muted} />}
+          {exp.receipt_url && <a href={exp.receipt_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}><Paperclip size={11} color={C.muted} /></a>}
         </div>
         <div className="text-[11px] truncate" style={{ color: C.muted }}>
           {exp.category} · {cardName}{showPerson ? ` · ${personName}` : ""}
@@ -655,6 +730,88 @@ function ExpenseRow({ exp, cardName, personName, onEdit, onDelete, showPerson })
       <button onClick={() => onEdit(exp)}><Pencil size={14} color={C.muted} /></button>
       <button onClick={() => onDelete(exp)}><Trash2 size={14} color={C.rose} /></button>
     </div>
+  );
+}
+
+function incomeMonthlyValue(inc) { return inc.amount; }
+
+function IncomeForm({ profileId, onSave, onClose, initial }) {
+  const [description, setDescription] = useState(initial?.description || "");
+  const [amount, setAmount] = useState(initial?.amount ?? "");
+  const [date, setDate] = useState(initial?.income_date || new Date().toISOString().slice(0, 10));
+  const [isRecurring, setIsRecurring] = useState(initial?.is_recurring || false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    if (!description.trim() || !amount) return;
+    setSaving(true); setErr("");
+    try {
+      await onSave({ id: initial?.id, profileId, description: description.trim(), amount: parseFloat(amount), date, isRecurring });
+      onClose();
+    } catch (e) {
+      setSaving(false);
+      setErr(friendlyError(e));
+    }
+  };
+
+  return (
+    <Modal title={initial ? "Editar receita" : "Nova receita"} onClose={onClose}>
+      <Field label="Descrição"><TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: Salário" /></Field>
+      <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00" /></Field>
+      <Field label="Data"><TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+      <label className="flex items-center gap-2 text-sm mb-3.5" style={{ color: C.text }}>
+        <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)} />
+        <Repeat size={14} color={C.muted} /> Receita recorrente (todo mês)
+      </label>
+      {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
+      <Btn full onClick={submit} disabled={saving}>{saving ? "Salvando..." : "Salvar receita"}</Btn>
+    </Modal>
+  );
+}
+
+function IncomeSection({ profile, data, refresh }) {
+  const now = currentMonthKey();
+  const [showForm, setShowForm] = useState(false);
+  const myIncomes = (data.incomes || []).filter((i) => i.profile_id === profile.id);
+  const incomeMonth = myIncomes.filter((i) => isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
+  const expenseMonth = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
+  const saldo = incomeMonth - expenseMonth;
+
+  const handleSave = async (inc) => { await saveIncome(inc); await refresh(); };
+  const handleDelete = async (inc) => { await deleteIncome(inc); await refresh(); };
+
+  return (
+    <Panel className="mt-4">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-xs font-medium tracking-wide uppercase flex items-center gap-1.5" style={{ color: C.muted }}><DollarSign size={13} /> Receitas e saldo</h4>
+        <button onClick={() => setShowForm(true)} className="flex items-center gap-1 text-xs" style={{ color: C.gold }}><Plus size={13} /> Receita</button>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <span className="text-[11px]" style={{ color: C.muted }}>receita do mês</span>
+          <div><Amount value={incomeMonth} size="text-base" tone="green" /></div>
+        </div>
+        <div>
+          <span className="text-[11px]" style={{ color: C.muted }}>saldo</span>
+          <div><Amount value={saldo} size="text-base" tone={saldo < 0 ? "rose" : "green"} /></div>
+        </div>
+      </div>
+      {myIncomes.length > 0 && (
+        <div className="space-y-2 pt-2" style={{ borderTop: `1px solid ${C.border}` }}>
+          {myIncomes.sort((a, b) => b.income_date.localeCompare(a.income_date)).map((inc) => (
+            <div key={inc.id} className="flex items-center justify-between text-sm">
+              <span style={{ color: C.text }}>{inc.description}{inc.is_recurring && <Repeat size={11} className="inline ml-1" color={C.muted} />}</span>
+              <div className="flex items-center gap-2">
+                <Amount value={inc.amount} size="text-xs" tone="green" />
+                <button onClick={() => handleDelete(inc)}><Trash2 size={13} color={C.rose} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {showForm && <IncomeForm profileId={profile.id} onSave={handleSave} onClose={() => setShowForm(false)} />}
+    </Panel>
   );
 }
 
@@ -708,6 +865,11 @@ function GoalsScreen({ profile, data, refresh }) {
   );
 }
 
+async function bulkUpdateCategory(ids, category) {
+  const { error } = await supabase.from("expenses").update({ category }).in("id", ids);
+  if (error) throw error;
+}
+
 /* ---------------------------------- HISTORY (reusable) ---------------------------------- */
 
 function HistoryScreen({ profile, data, refresh, isAdmin }) {
@@ -717,6 +879,11 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [customRange, setCustomRange] = useState({ start: "", end: "" });
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [query, setQuery] = useState("");
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState([]);
+  const [bulkCategory, setBulkCategory] = useState(CATEGORIES[0]);
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   const cardName = (id) => data.cards.find((c) => c.id === id)?.name || "-";
   const personName = (id) => firstName(data.profiles.find((u) => u.id === id)?.name) || "-";
@@ -727,12 +894,32 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
     .filter((e) => !isAdmin || filterPerson === "all" || e.profile_id === filterPerson)
     .filter((e) => filterCard === "all" || e.card_id === filterCard)
     .filter((e) => e.purchase_date >= range.start && e.purchase_date <= range.end)
+    .filter((e) => !query.trim() || e.description.toLowerCase().includes(query.trim().toLowerCase()))
     .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date));
 
   const myCards = isAdmin ? data.cards : data.cards.filter((c) => c.memberIds.includes(profile.id));
 
   const handleSave = async (exp) => { await saveExpense(exp); await refresh(); };
   const handleDelete = async (exp) => { await deleteExpense(exp); await refresh(); };
+  const toggleSelect = (id) => setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  const applyBulk = async () => {
+    setBulkSaving(true);
+    try {
+      await bulkUpdateCategory(selected, bulkCategory);
+      setSelected([]); setSelectMode(false);
+      await refresh();
+    } catch (e) {
+      // erro silencioso vira apenas cancelamento da seleção; formulário principal já cobre feedback de erro
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+  const exportBackup = () => {
+    const payload = isAdmin
+      ? { profiles: data.profiles, cards: data.cards, expenses: data.expenses, budgets: data.budgets, incomes: data.incomes }
+      : { expenses: filtered, budgets: data.budgets.filter((b) => b.profile_id === profile.id), incomes: (data.incomes || []).filter((i) => i.profile_id === profile.id) };
+    downloadJSON(payload, `backup-${currentMonthKey()}.json`);
+  };
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
@@ -752,18 +939,41 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
       )}
       <PeriodFilter value={period} onChange={setPeriod} customRange={customRange} onCustomChange={setCustomRange} />
 
+      <div className="relative mb-3">
+        <Search size={15} color={C.muted} className="absolute left-3 top-1/2 -translate-y-1/2" />
+        <TextInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por descrição..." style={{ paddingLeft: 34 }} />
+      </div>
+
       <div className="flex gap-2 mb-4">
         <Btn full onClick={() => { setEditing(null); setShowForm(true); }} disabled={myCards.length === 0}><Plus size={16} /> Novo gasto</Btn>
         <Btn variant="ghost" onClick={() => downloadCSV(toCSV(filtered, cardName, personName), `gastos-${period}.csv`)}><Download size={16} /></Btn>
+        <Btn variant="ghost" onClick={exportBackup}>JSON</Btn>
       </div>
+
+      {isAdmin && (
+        <div className="flex items-center justify-between mb-3">
+          <button onClick={() => { setSelectMode((v) => !v); setSelected([]); }} className="flex items-center gap-1.5 text-xs" style={{ color: selectMode ? C.gold : C.muted }}>
+            <CheckSquare size={13} /> {selectMode ? "Cancelar seleção" : "Selecionar vários"}
+          </button>
+          {selectMode && selected.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Select value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} style={{ padding: "6px 8px", fontSize: 12 }}>
+                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </Select>
+              <Btn onClick={applyBulk} disabled={bulkSaving}>{bulkSaving ? "..." : `Aplicar (${selected.length})`}</Btn>
+            </div>
+          )}
+        </div>
+      )}
 
       <Panel>
         {filtered.length === 0 ? (
-          <EmptyState icon={<ListChecks size={28} />} text="Nenhum gasto neste período." />
+          <EmptyState icon={<ListChecks size={28} />} text="Nenhum gasto encontrado." />
         ) : (
           filtered.map((exp) => (
             <ExpenseRow key={exp.id} exp={exp} cardName={cardName(exp.card_id)} personName={personName(exp.profile_id)} showPerson={isAdmin}
-              onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} />
+              onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete}
+              selectable={isAdmin && selectMode} selected={selected.includes(exp.id)} onToggleSelect={toggleSelect} />
           ))
         )}
       </Panel>
@@ -778,7 +988,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
 /* ---------------------------------- MEMBER: OVERVIEW ---------------------------------- */
 
-function MemberOverview({ profile, data }) {
+function MemberOverview({ profile, data, refresh }) {
   const now = currentMonthKey();
   const myCards = data.cards.filter((c) => c.memberIds.includes(profile.id));
   const myExpenses = data.expenses.filter((e) => e.profile_id === profile.id);
@@ -793,19 +1003,20 @@ function MemberOverview({ profile, data }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {myCards.map((c) => {
             const used = data.expenses.filter((e) => e.card_id === c.id).reduce((s, e) => s + outstanding(e, now), 0);
-            return <CardWidget key={c.id} card={c} used={used} />;
+            return <CardWidget key={c.id} card={c} used={used} nextAmount={nextInvoiceProjection(c.id, data.expenses, now)} />;
           })}
         </div>
       ) : (
         <Panel><EmptyState icon={<CreditCard size={28} />} text="Você ainda não tem acesso a nenhum cartão." /></Panel>
       )}
+      <IncomeSection profile={profile} data={data} refresh={refresh} />
     </div>
   );
 }
 
 /* ---------------------------------- ADMIN: OVERVIEW ---------------------------------- */
 
-function AdminOverview({ data }) {
+function AdminOverview({ profile, data, refresh }) {
   const now = currentMonthKey();
   const totalMonth = data.expenses.filter((e) => isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
   const byPerson = data.profiles.map((u) => ({ ...u, total: data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0) }));
@@ -824,11 +1035,12 @@ function AdminOverview({ data }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {data.cards.map((c) => {
             const used = data.expenses.filter((e) => e.card_id === c.id).reduce((s, e) => s + outstanding(e, now), 0);
-            return <CardWidget key={c.id} card={c} used={used} />;
+            return <CardWidget key={c.id} card={c} used={used} nextAmount={nextInvoiceProjection(c.id, data.expenses, now)} />;
           })}
           {data.cards.length === 0 && <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão cadastrado ainda." /></Panel>}
         </div>
       </div>
+      <IncomeSection profile={profile} data={data} refresh={refresh} />
     </div>
   );
 }
@@ -860,7 +1072,7 @@ function AdminCards({ data, refresh }) {
           const names = data.profiles.filter((u) => c.memberIds.includes(u.id)).map((u) => firstName(u.name)).join(", ") || "ninguém ainda";
           return (
             <div key={c.id}>
-              <CardWidget card={c} used={used} />
+              <CardWidget card={c} used={used} nextAmount={nextInvoiceProjection(c.id, data.expenses, now)} />
               <Panel className="mt-2 !py-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] truncate" style={{ color: C.muted }}>acesso: {names}</span>
@@ -883,11 +1095,13 @@ function AdminCards({ data, refresh }) {
 
 function AdminReports({ data }) {
   const now = currentMonthKey();
+  const prevMonth = addMonthsToKey(now, -1);
   const dueNow = data.expenses.filter((e) => isDueIn(e, now));
   const totalMonth = dueNow.reduce((s, e) => s + monthlyValue(e), 0);
   const byCategory = CATEGORIES.map((cat) => ({ name: cat, value: dueNow.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0) }))
     .filter((d) => d.value > 0)
     .sort((a, b) => b.value - a.value);
+  const comparison = categoryComparison(data.expenses, now, prevMonth);
 
   const months = last6Months();
   const evolution = months.map((mk) => {
@@ -933,6 +1147,34 @@ function AdminReports({ data }) {
       </Panel>
 
       <Panel>
+        <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Comparado ao mês anterior</h4>
+        {comparison.length === 0 ? (
+          <p className="text-sm" style={{ color: C.muted }}>Sem dados suficientes para comparar.</p>
+        ) : (
+          <div className="space-y-2.5">
+            {comparison.map((d) => {
+              const diff = d.previous > 0 ? ((d.current - d.previous) / d.previous) * 100 : (d.current > 0 ? 100 : 0);
+              const up = diff > 0;
+              return (
+                <div key={d.category} className="flex items-center justify-between text-sm">
+                  <span style={{ color: C.text }}>{d.category}</span>
+                  <div className="flex items-center gap-2">
+                    <Amount value={d.current} size="text-xs" />
+                    {d.previous > 0 && (
+                      <span className="flex items-center gap-0.5 text-[11px]" style={{ color: up ? C.rose : C.green }}>
+                        {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                        {Math.abs(diff).toFixed(0)}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Panel>
+
+      <Panel>
         <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Evolução mensal</h4>
         <ResponsiveContainer width="100%" height={230}>
           <BarChart data={evolution} barGap={4}>
@@ -950,21 +1192,35 @@ function AdminReports({ data }) {
   );
 }
 
+function FloatingAddButton({ onClick }) {
+  return (
+    <button onClick={onClick} className="fixed z-40 rounded-full flex items-center justify-center transition-all active:scale-95"
+      style={{ right: 18, bottom: 78, width: 54, height: 54, background: HERO_GRADIENT, boxShadow: "0 10px 24px rgba(76,29,149,0.45)" }}>
+      <Zap size={22} color="#fff" />
+    </button>
+  );
+}
+
 /* ---------------------------------- DASHBOARDS ---------------------------------- */
 
 function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = useState("overview");
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const myCards = data.cards.filter((c) => c.memberIds.includes(profile.id));
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "history", label: "Histórico", icon: <ListChecks size={18} /> },
     { id: "goals", label: "Metas", icon: <Target size={18} /> },
   ];
+  const handleQuickSave = async (exp) => { await saveExpense(exp); await refresh(); };
   return (
     <>
       <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} />
-      {tab === "overview" && <MemberOverview profile={profile} data={data} />}
+      {tab === "overview" && <MemberOverview profile={profile} data={data} refresh={refresh} />}
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
       {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
+      {myCards.length > 0 && <FloatingAddButton onClick={() => setShowQuickAdd(true)} />}
+      {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} />}
       <BottomNav tabs={tabs} tab={tab} setTab={setTab} />
     </>
   );
@@ -972,6 +1228,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
 
 function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = useState("overview");
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "cards", label: "Cartões", icon: <CreditCard size={18} /> },
@@ -979,14 +1236,17 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
     { id: "goals", label: "Metas", icon: <Target size={18} /> },
   ];
+  const handleQuickSave = async (exp) => { await saveExpense(exp); await refresh(); };
   return (
     <>
       <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} />
-      {tab === "overview" && <AdminOverview data={data} />}
+      {tab === "overview" && <AdminOverview profile={profile} data={data} refresh={refresh} />}
       {tab === "cards" && <AdminCards data={data} refresh={refresh} />}
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
       {tab === "reports" && <AdminReports data={data} />}
       {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
+      {data.cards.length > 0 && <FloatingAddButton onClick={() => setShowQuickAdd(true)} />}
+      {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} />}
       <BottomNav tabs={tabs} tab={tab} setTab={setTab} />
     </>
   );
