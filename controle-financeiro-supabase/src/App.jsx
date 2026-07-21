@@ -635,7 +635,7 @@ function GoalsScreen({ profile, data, refresh }) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <ScreenHeader title="Minhas metas" subtitle="Defina um teto de gasto mensal por categoria, só seu" />
+      <ScreenHeader title="Metas" subtitle="Teto mensal por categoria, só seu" />
       <Panel>
         <div className="space-y-4">
           {CATEGORIES.map((cat) => {
@@ -695,7 +695,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <ScreenHeader title="Histórico de gastos" subtitle={isAdmin ? "Todos os lançamentos da família" : "Seus lançamentos"} />
+      <ScreenHeader title="Histórico" subtitle={isAdmin ? "Lançamentos da família" : "Seus lançamentos"} />
 
       {isAdmin && (
         <div className="flex gap-2 mb-3">
@@ -745,8 +745,8 @@ function MemberOverview({ profile, data }) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <ScreenHeader title={`Olá, ${profile.name.split(" ")[0]}`} subtitle="Resumo do seu mês" />
-      <HeroPanel label="gasto este mês" value={myMonthTotal} />
+      <ScreenHeader title={`Olá, ${profile.name.split(" ")[0]}`} subtitle="Seu mês" />
+      <HeroPanel label="Total do mês" value={myMonthTotal} />
 
       {myCards.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -771,9 +771,9 @@ function AdminOverview({ data }) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <ScreenHeader title="Visão geral" subtitle="Resumo da família este mês" />
+      <ScreenHeader title="Visão geral" subtitle="Este mês" />
       <div className="space-y-4">
-        <HeroPanel label="total da família este mês" value={totalMonth} />
+        <HeroPanel label="Total do mês" value={totalMonth} />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {byPerson.map((p) => (
             <Panel key={p.id}><span className="text-[11px]" style={{ color: C.muted }}>{p.name}</span><div className="mt-1"><Amount value={p.total} size="text-lg" /></div></Panel>
@@ -802,30 +802,34 @@ function AdminCards({ data, refresh }) {
   const handleSave = async (card) => { await saveCard(card); await refresh(); };
   const handleDelete = async (card) => { await deleteCard(card); await refresh(); };
 
+  const totalAvailable = data.cards.reduce((s, c) => {
+    const used = data.expenses.filter((e) => e.card_id === c.id).reduce((s2, e) => s2 + outstanding(e, now), 0);
+    return s + Math.max(c.card_limit - used, 0);
+  }, 0);
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <ScreenHeader title="Cartões" subtitle="Gerencie limites, vencimentos e quem tem acesso" />
+      <ScreenHeader title="Cartões" subtitle="Limites, vencimentos e acessos" />
+      {data.cards.length > 0 && <HeroPanel label="Limite disponível total" value={totalAvailable} />}
       <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Novo cartão</Btn>
-      <div className="mt-4 space-y-3">
+      <div className="mt-4 space-y-4">
         {data.cards.length === 0 && <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão cadastrado ainda." /></Panel>}
         {data.cards.map((c) => {
           const used = data.expenses.filter((e) => e.card_id === c.id).reduce((s, e) => s + outstanding(e, now), 0);
           const names = data.profiles.filter((u) => c.memberIds.includes(u.id)).map((u) => u.name).join(", ") || "ninguém ainda";
           return (
-            <Panel key={c.id}>
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <div className="font-medium text-sm" style={{ color: C.text }}>{c.name}</div>
-                  <div className="text-[11px] mt-0.5" style={{ color: C.muted }}>acesso: {names}</div>
+            <div key={c.id}>
+              <CardWidget card={c} used={used} />
+              <Panel className="mt-2 !py-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] truncate" style={{ color: C.muted }}>acesso: {names}</span>
+                  <div className="flex gap-3 shrink-0 ml-2">
+                    <button onClick={() => { setEditing(c); setShowForm(true); }}><Pencil size={14} color={C.muted} /></button>
+                    <button onClick={() => handleDelete(c)}><Trash2 size={14} color={C.rose} /></button>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <button onClick={() => { setEditing(c); setShowForm(true); }}><Pencil size={14} color={C.muted} /></button>
-                  <button onClick={() => handleDelete(c)}><Trash2 size={14} color={C.rose} /></button>
-                </div>
-              </div>
-              <ProgressBar pct={(used / c.card_limit) * 100} />
-              <div className="flex justify-between mt-2 text-[11px]" style={{ color: C.muted }}><span>usado {brl(used)}</span><span>limite {brl(c.card_limit)}</span></div>
-            </Panel>
+              </Panel>
+            </div>
           );
         })}
       </div>
