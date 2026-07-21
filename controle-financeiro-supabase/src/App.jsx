@@ -125,10 +125,11 @@ function nextInvoiceProjection(cardId, expenses, nowKey = currentMonthKey()) {
   const nextKey = addMonthsToKey(nowKey, 1);
   return expenses.filter((e) => e.card_id === cardId && isDueIn(e, nextKey)).reduce((s, e) => s + monthlyValue(e), 0);
 }
-function categoryComparison(expenses, thisKey, prevKey) {
+function categoryComparison(expenses, thisKey, prevKey, profileIds = null) {
+  const scoped = profileIds ? expenses.filter((e) => profileIds.includes(e.profile_id)) : expenses;
   return CATEGORIES.map((cat) => {
-    const current = expenses.filter((e) => e.category === cat && isDueIn(e, thisKey)).reduce((s, e) => s + monthlyValue(e), 0);
-    const previous = expenses.filter((e) => e.category === cat && isDueIn(e, prevKey)).reduce((s, e) => s + monthlyValue(e), 0);
+    const current = scoped.filter((e) => e.category === cat && isDueIn(e, thisKey)).reduce((s, e) => s + monthlyValue(e), 0);
+    const previous = scoped.filter((e) => e.category === cat && isDueIn(e, prevKey)).reduce((s, e) => s + monthlyValue(e), 0);
     return { category: cat, current, previous };
   }).filter((d) => d.current > 0 || d.previous > 0);
 }
@@ -1155,38 +1156,77 @@ function monthKeysForPeriod(period, customRange) {
   }
   return [now];
 }
-function categoryTotalsForMonths(expenses, monthKeys) {
+function categoryTotalsForMonths(expenses, monthKeys, profileIds = null) {
+  const scoped = profileIds ? expenses.filter((e) => profileIds.includes(e.profile_id)) : expenses;
   return CATEGORIES.map((cat) => {
     let value = 0;
-    monthKeys.forEach((mk) => { value += expenses.filter((e) => e.category === cat && isDueIn(e, mk)).reduce((s, e) => s + monthlyValue(e), 0); });
+    monthKeys.forEach((mk) => { value += scoped.filter((e) => e.category === cat && isDueIn(e, mk)).reduce((s, e) => s + monthlyValue(e), 0); });
     return { name: cat, value };
   }).filter((d) => d.value > 0).sort((a, b) => b.value - a.value);
 }
 
+function PersonFilter({ profiles, selectedIds, onChange }) {
+  const allSelected = selectedIds.length === 0;
+  const toggle = (id) => {
+    if (selectedIds.includes(id)) onChange(selectedIds.filter((x) => x !== id));
+    else onChange([...selectedIds, id]);
+  };
+  return (
+    <div className="flex gap-1.5 flex-wrap mb-3">
+      <button onClick={() => onChange([])}
+        className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+        style={{ background: allSelected ? C.gold : "transparent", color: allSelected ? "#1A1607" : C.muted, border: `1px solid ${allSelected ? C.gold : C.border}` }}>
+        Todos
+      </button>
+      {profiles.map((p) => {
+        const active = selectedIds.includes(p.id);
+        return (
+          <button key={p.id} onClick={() => toggle(p.id)}
+            className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+            style={{ background: active ? C.gold : "transparent", color: active ? "#1A1607" : C.muted, border: `1px solid ${active ? C.gold : C.border}` }}>
+            {firstName(p.name)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ---------------------------------- ADMIN: REPORTS ---------------------------------- */
 
-function AdminReports({ data }) {
+function ReportsScreen({ profile, data, isAdmin }) {
   const now = currentMonthKey();
   const prevMonth = addMonthsToKey(now, -1);
   const [period, setPeriod] = useState("month");
   const [customRange, setCustomRange] = useState({ start: "", end: "" });
+  const [selectedIds, setSelectedIds] = useState([]);
+
+  const scopeProfiles = isAdmin
+    ? (selectedIds.length === 0 ? data.profiles : data.profiles.filter((p) => selectedIds.includes(p.id)))
+    : data.profiles.filter((p) => p.id === profile.id);
+  const scopeIds = scopeProfiles.map((p) => p.id);
+
   const monthKeys = monthKeysForPeriod(period, customRange);
-  const byCategory = categoryTotalsForMonths(data.expenses, monthKeys);
+  const byCategory = categoryTotalsForMonths(data.expenses, monthKeys, scopeIds);
   const totalPeriod = byCategory.reduce((s, d) => s + d.value, 0);
-  const comparison = categoryComparison(data.expenses, now, prevMonth);
+  const comparison = categoryComparison(data.expenses, now, prevMonth, scopeIds);
 
   const months = last6Months();
   const evolution = months.map((mk) => {
     const row = { month: monthLabel(mk) };
-    data.profiles.forEach((u) => { row[firstName(u.name)] = data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, mk)).reduce((s, e) => s + monthlyValue(e), 0); });
+    scopeProfiles.forEach((u) => { row[firstName(u.name)] = data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, mk)).reduce((s, e) => s + monthlyValue(e), 0); });
     return row;
   });
 
+  const heroLabel = period === "month" ? "Total do mês" : `Total (${periodPresetLabel(period)})`;
+  const scopeLabel = !isAdmin ? "Seu relatório" : selectedIds.length === 0 ? "Todos" : scopeProfiles.map((p) => firstName(p.name)).join(" e ");
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28 space-y-4">
-      <ScreenHeader title="Relatórios" subtitle="Panorama financeiro" />
+      <ScreenHeader title="Relatórios" subtitle={isAdmin ? `Panorama financeiro · ${scopeLabel}` : "Seu panorama financeiro"} />
+      {isAdmin && <PersonFilter profiles={data.profiles} selectedIds={selectedIds} onChange={setSelectedIds} />}
       <PeriodFilter value={period} onChange={setPeriod} customRange={customRange} onCustomChange={setCustomRange} />
-      <HeroPanel label={period === "month" ? "Total do mês" : `Total (${periodPresetLabel(period)})`} value={totalPeriod} />
+      <HeroPanel label={heroLabel} value={totalPeriod} />
 
       <Panel>
         <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Por categoria</h4>
@@ -1253,19 +1293,21 @@ function AdminReports({ data }) {
             <XAxis dataKey="month" stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} />
             <YAxis stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} tickFormatter={compactNumber} width={38} />
             <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text }} cursor={{ fill: "rgba(124,58,237,0.06)" }} />
-            {data.profiles.map((u, i) => (
+            {scopeProfiles.map((u, i) => (
               <Bar key={u.id} dataKey={firstName(u.name)} radius={[6, 6, 0, 0]} fill={personColorFor(u.name, i)} maxBarSize={22} />
             ))}
           </BarChart>
         </ResponsiveContainer>
-        <div className="flex flex-wrap gap-x-5 gap-y-2 justify-center mt-3">
-          {data.profiles.map((u, i) => (
-            <div key={u.id} className="flex items-center gap-1.5 text-[11px]" style={{ color: C.muted }}>
-              <span className="w-2 h-2 rounded-full" style={{ background: personColorFor(u.name, i) }} />
-              {firstName(u.name)}
-            </div>
-          ))}
-        </div>
+        {scopeProfiles.length > 1 && (
+          <div className="flex flex-wrap gap-x-5 gap-y-2 justify-center mt-3">
+            {scopeProfiles.map((u, i) => (
+              <div key={u.id} className="flex items-center gap-1.5 text-[11px]" style={{ color: C.muted }}>
+                <span className="w-2 h-2 rounded-full" style={{ background: personColorFor(u.name, i) }} />
+                {firstName(u.name)}
+              </div>
+            ))}
+          </div>
+        )}
       </Panel>
     </div>
   );
@@ -1289,6 +1331,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "history", label: "Histórico", icon: <ListChecks size={18} /> },
+    { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
     { id: "goals", label: "Metas", icon: <Target size={18} /> },
   ];
   const handleQuickSave = async (exp) => { await saveExpense(exp); await refresh(); };
@@ -1297,6 +1340,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
       <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} />
       {tab === "overview" && <MemberOverview profile={profile} data={data} refresh={refresh} />}
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
+      {tab === "reports" && <ReportsScreen profile={profile} data={data} isAdmin={false} />}
       {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
       {myCards.length > 0 && <FloatingAddButton onClick={() => setShowQuickAdd(true)} />}
       {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} />}
@@ -1322,7 +1366,7 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
       {tab === "overview" && <AdminOverview profile={profile} data={data} refresh={refresh} />}
       {tab === "cards" && <AdminCards data={data} refresh={refresh} />}
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
-      {tab === "reports" && <AdminReports data={data} />}
+      {tab === "reports" && <ReportsScreen profile={profile} data={data} isAdmin />}
       {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
       {data.cards.length > 0 && <FloatingAddButton onClick={() => setShowQuickAdd(true)} />}
       {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} />}
