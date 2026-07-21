@@ -213,7 +213,7 @@ function shade(hex, percent) {
 }
 const HERO_GRADIENT = "linear-gradient(135deg, #7C3AED, #4C1D95)";
 
-function HeroPanel({ label, value }) {
+function HeroPanel({ label, value, sub }) {
   return (
     <div className="rounded-3xl p-6 mb-4 relative overflow-hidden" style={{ background: HERO_GRADIENT, boxShadow: "0 14px 34px rgba(76,29,149,0.35)" }}>
       <div style={{ position: "absolute", right: -40, top: -40, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
@@ -222,6 +222,7 @@ function HeroPanel({ label, value }) {
       <div className="mt-1 relative">
         <span className="text-3xl font-extrabold" style={{ color: "#fff", fontFamily: "'Manrope', sans-serif", fontVariantNumeric: "tabular-nums" }}>{brl(value)}</span>
       </div>
+      {sub && <div className="mt-1 relative text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>{sub}</div>}
     </div>
   );
 }
@@ -313,9 +314,10 @@ function PeriodFilter({ value, onChange, customRange, onCustomChange }) {
   const presets = ["month", "1m", "3m", "6m", "12m", "custom"];
   return (
     <>
-      <button onClick={() => setOpen((v) => !v)} className="shrink-0 flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2.5" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text }}>
-        <Clock size={12} color={C.muted} /> {periodPresetLabel(value)}
-        <ChevronRight size={13} color={C.muted} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+      <button onClick={() => setOpen((v) => !v)} className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+        style={{ background: open ? C.gold : "transparent", color: open ? "#1A1607" : C.muted, border: `1px solid ${open ? C.gold : C.border}` }}>
+        <Clock size={12} /> {periodPresetLabel(value)}
+        <ChevronRight size={13} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
       </button>
       {open && (
         <div className="w-full mt-2">
@@ -523,9 +525,39 @@ function TopBar({ profile, onLogout, theme, onToggleTheme }) {
   );
 }
 
+function loadTesseractScript() {
+  return new Promise((resolve, reject) => {
+    if (window.Tesseract) return resolve(window.Tesseract);
+    const existing = document.querySelector('script[data-tesseract]');
+    if (existing) { existing.addEventListener("load", () => resolve(window.Tesseract)); return; }
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    script.setAttribute("data-tesseract", "1");
+    script.onload = () => resolve(window.Tesseract);
+    script.onerror = () => reject(new Error("Não foi possível carregar o leitor de comprovantes."));
+    document.head.appendChild(script);
+  });
+}
+async function extractReceiptData(file) {
+  const Tesseract = await loadTesseractScript();
+  const { data: { text } } = await Tesseract.recognize(file, "por");
+  const amounts = [...text.matchAll(/(\d{1,3}(?:\.\d{3})*,\d{2})/g)].map((m) => parseFloat(m[1].replace(/\./g, "").replace(",", ".")));
+  const amount = amounts.length ? Math.max(...amounts) : null;
+  const dateMatch = text.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})/);
+  let date = null;
+  if (dateMatch) {
+    let [, d, m, y] = dateMatch;
+    if (y.length === 2) y = "20" + y;
+    const candidate = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    if (!isNaN(new Date(candidate).getTime())) date = candidate;
+  }
+  return { amount, date };
+}
+
 /* ---------------------------------- EXPENSE FORM ---------------------------------- */
 
-function ExpenseForm({ cards, userId, onSave, onClose, initial }) {
+function ExpenseForm({ cards, userId, onSave, onClose, initial, profiles }) {
+  const [selectedUserId, setSelectedUserId] = useState(initial?.profile_id || userId);
   const [cardId, setCardId] = useState(initial?.card_id || cards[0]?.id || "");
   const [category, setCategory] = useState(initial?.category || CATEGORIES[0]);
   const [description, setDescription] = useState(initial?.description || "");
@@ -536,16 +568,34 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial }) {
   const [receiptFile, setReceiptFile] = useState(null);
   const [existingReceipt, setExistingReceipt] = useState(initial?.receipt_url || null);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importNote, setImportNote] = useState("");
   const [err, setErr] = useState("");
+
+  const handleReceiptChange = async (file) => {
+    setReceiptFile(file);
+    if (!file || initial) return;
+    setImporting(true); setImportNote("");
+    try {
+      const { amount, date: foundDate } = await extractReceiptData(file);
+      if (amount) setTotalAmount(String(amount));
+      if (foundDate) setDate(foundDate);
+      setImportNote(amount ? "Dados lidos do comprovante — confira antes de salvar." : "Não conseguimos identificar o valor automaticamente. Preencha manualmente.");
+    } catch {
+      setImportNote("Não foi possível ler o comprovante automaticamente. Preencha manualmente.");
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const submit = async () => {
     if (!cardId || !description.trim() || !totalAmount) return;
     setSaving(true); setErr("");
     try {
       let receiptUrl = existingReceipt;
-      if (receiptFile) receiptUrl = await uploadReceipt(receiptFile, userId);
+      if (receiptFile) receiptUrl = await uploadReceipt(receiptFile, selectedUserId);
       await onSave({
-        id: initial?.id, cardId, userId, category, description: description.trim(),
+        id: initial?.id, cardId, userId: selectedUserId, category, description: description.trim(),
         totalAmount: parseFloat(totalAmount), date, firstMonth: monthKeyFromDate(date),
         installments: isRecurring ? 1 : Math.max(1, parseInt(installments) || 1),
         isRecurring, receiptUrl,
@@ -559,6 +609,21 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial }) {
 
   return (
     <Modal title={initial ? "Editar gasto" : "Novo gasto"} onClose={onClose}>
+      {!initial && (
+        <Field label="Importar de foto ou print (opcional)">
+          <input type="file" accept="image/*" capture="environment" onChange={(e) => handleReceiptChange(e.target.files?.[0] || null)}
+            className="text-xs" style={{ color: C.muted }} />
+          {importing && <p className="text-xs mt-1.5 flex items-center gap-1.5" style={{ color: C.muted }}><Clock size={11} /> Lendo comprovante...</p>}
+          {importNote && !importing && <p className="text-xs mt-1.5" style={{ color: C.gold }}>{importNote}</p>}
+        </Field>
+      )}
+      {profiles && (
+        <Field label="Pessoa">
+          <Select value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}>
+            {profiles.map((p) => <option key={p.id} value={p.id}>{firstName(p.name)}</option>)}
+          </Select>
+        </Field>
+      )}
       <Field label="Cartão">
         <Select value={cardId} onChange={(e) => setCardId(e.target.value)}>
           {cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -587,19 +652,21 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial }) {
         <p className="text-xs mb-3" style={{ color: C.muted }}>{installments}x de <b style={{ color: C.goldSoft }}>{brl(totalAmount / installments)}</b></p>
       )}
       {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
-      <Field label="Comprovante (opcional)">
-        {existingReceipt && !receiptFile && (
-          <div className="flex items-center justify-between mb-2 text-xs" style={{ color: C.muted }}>
-            <a href={existingReceipt} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 underline" style={{ color: C.gold }}>
-              <Paperclip size={12} /> Ver comprovante atual
-            </a>
-            <button onClick={() => setExistingReceipt(null)}><X size={13} color={C.rose} /></button>
-          </div>
-        )}
-        <input type="file" accept="image/*,application/pdf" onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
-          className="text-xs" style={{ color: C.muted }} />
-      </Field>
-      <Btn full onClick={submit} disabled={!cardId || saving}>{saving ? "Salvando..." : "Salvar gasto"}</Btn>
+      {initial && (
+        <Field label="Comprovante (opcional)">
+          {existingReceipt && !receiptFile && (
+            <div className="flex items-center justify-between mb-2 text-xs" style={{ color: C.muted }}>
+              <a href={existingReceipt} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 underline" style={{ color: C.gold }}>
+                <Paperclip size={12} /> Ver comprovante atual
+              </a>
+              <button onClick={() => setExistingReceipt(null)}><X size={13} color={C.rose} /></button>
+            </div>
+          )}
+          <input type="file" accept="image/*,application/pdf" onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
+            className="text-xs" style={{ color: C.muted }} />
+        </Field>
+      )}
+      <Btn full onClick={submit} disabled={!cardId || saving || importing}>{saving ? "Salvando..." : "Salvar gasto"}</Btn>
     </Modal>
   );
 }
@@ -929,8 +996,8 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [bulkSaving, setBulkSaving] = useState(false);
 
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [viewMode, setViewMode] = useState("lista");
-  const [expandedInvoice, setExpandedInvoice] = useState(null);
+  const [viewMode, setViewMode] = useState("faturas");
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
 
   const cardName = (id) => data.cards.find((c) => c.id === id)?.name || "-";
   const personName = (id) => firstName(data.profiles.find((u) => u.id === id)?.name) || "-";
@@ -970,7 +1037,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <ScreenHeader title={viewMode === "faturas" ? "Faturas" : "Histórico"} subtitle={isAdmin ? "Todos os lançamentos" : "Seus lançamentos"} />
+      <ScreenHeader title="Faturas" subtitle={isAdmin ? "Todos os lançamentos" : "Seus lançamentos"} />
 
       {isAdmin && (
         <div className="flex gap-2 mb-3">
@@ -986,15 +1053,64 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
       )}
 
       <div className="flex gap-1.5 mb-3">
-        <button onClick={() => setViewMode("lista")} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-          style={{ background: viewMode === "lista" ? C.gold : "transparent", color: viewMode === "lista" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "lista" ? C.gold : C.border}` }}>
-          Lista
-        </button>
         <button onClick={() => setViewMode("faturas")} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
           style={{ background: viewMode === "faturas" ? C.gold : "transparent", color: viewMode === "faturas" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "faturas" ? C.gold : C.border}` }}>
           Faturas
         </button>
+        <button onClick={() => setViewMode("lista")} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+          style={{ background: viewMode === "lista" ? C.gold : "transparent", color: viewMode === "lista" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "lista" ? C.gold : C.border}` }}>
+          Buscar tudo
+        </button>
       </div>
+
+      {viewMode === "faturas" && (() => {
+        const scopedExpenses = baseExpenses.filter((e) => !isAdmin || filterPerson === "all" || e.profile_id === filterPerson);
+        const invoiceCards = filterCard === "all" ? myCards : myCards.filter((c) => c.id === filterCard);
+        const months = invoiceMonths();
+        const lineItems = scopedExpenses
+          .filter((e) => invoiceCards.some((c) => c.id === e.card_id) && isDueIn(e, selectedMonth))
+          .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date));
+        const total = lineItems.reduce((s, e) => s + monthlyValue(e), 0);
+        const singleCard = invoiceCards.length === 1 ? invoiceCards[0] : null;
+        const statusInfo = singleCard ? invoiceStatusInfo(singleCard, selectedMonth) : null;
+
+        return invoiceCards.length === 0 ? (
+          <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão disponível." /></Panel>
+        ) : (
+          <>
+            <div className="flex gap-1.5 overflow-x-auto mb-3 pb-1" style={{ scrollbarWidth: "none" }}>
+              {months.map((mk) => {
+                const active = mk === selectedMonth;
+                const status = singleCard ? invoiceStatusInfo(singleCard, mk) : null;
+                const tone = status?.tone === "green" ? C.green : status?.tone === "amber" ? C.amber : C.muted;
+                return (
+                  <button key={mk} onClick={() => setSelectedMonth(mk)} className="shrink-0 px-3.5 py-2 rounded-xl text-xs font-medium transition-all capitalize"
+                    style={{ background: active ? C.gold : "transparent", color: active ? "#1A1607" : tone, border: `1px solid ${active ? C.gold : C.border}` }}>
+                    {monthLabel(mk)}
+                  </button>
+                );
+              })}
+            </div>
+
+            <HeroPanel
+              label={`Fatura de ${monthLabel(selectedMonth)}`}
+              value={total}
+              sub={statusInfo ? `${statusInfo.label === "aberta" ? "Fecha" : statusInfo.label === "futura" ? "Fecha" : "Fechou"} dia ${singleCard.closing_day} · vence dia ${singleCard.due_day}` : undefined}
+            />
+
+            <Panel>
+              {lineItems.length === 0 ? (
+                <EmptyState icon={<ListChecks size={28} />} text="Nenhum gasto nesta fatura." />
+              ) : (
+                lineItems.map((exp) => (
+                  <ExpenseRow key={exp.id} exp={exp} cardName={cardName(exp.card_id)} personName={personName(exp.profile_id)} showPerson={isAdmin}
+                    onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} />
+                ))
+              )}
+            </Panel>
+          </>
+        );
+      })()}
 
       {viewMode === "lista" && (
         <>
@@ -1051,64 +1167,10 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
         </>
       )}
 
-      {viewMode === "faturas" && (() => {
-        const scopedExpenses = baseExpenses.filter((e) => !isAdmin || filterPerson === "all" || e.profile_id === filterPerson);
-        const invoiceCards = filterCard === "all" ? myCards : myCards.filter((c) => c.id === filterCard);
-        const months = invoiceMonths();
-        return invoiceCards.length === 0 ? (
-          <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão disponível." /></Panel>
-        ) : (
-          <div className="space-y-4">
-            {invoiceCards.map((c) => (
-              <div key={c.id}>
-                <div className="flex items-center gap-2 mb-2 px-1">
-                  <CreditCard size={14} color={C.gold} />
-                  <span className="text-sm font-medium" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{c.name}</span>
-                </div>
-                <Panel style={{ padding: 0 }}>
-                  {months.map((mk, i) => {
-                    const lineItems = scopedExpenses.filter((e) => e.card_id === c.id && isDueIn(e, mk));
-                    const amount = lineItems.reduce((s, e) => s + monthlyValue(e), 0);
-                    const status = invoiceStatusInfo(c, mk);
-                    const key = `${c.id}-${mk}`;
-                    const expanded = expandedInvoice === key;
-                    return (
-                      <div key={mk} style={{ borderBottom: i < months.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                        <button onClick={() => setExpandedInvoice(expanded ? null : key)} className="w-full flex items-center justify-between px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm capitalize" style={{ color: C.text }}>{monthLabel(mk)}</span>
-                            <Chip tone={status.tone}>{status.label}</Chip>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Amount value={amount} size="text-sm" />
-                            <ChevronRight size={14} color={C.muted} style={{ transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
-                          </div>
-                        </button>
-                        {expanded && (
-                          <div className="px-4 pb-3">
-                            {lineItems.length === 0 ? (
-                              <p className="text-xs" style={{ color: C.muted }}>Nenhum gasto nesta fatura.</p>
-                            ) : (
-                              lineItems.map((exp) => (
-                                <ExpenseRow key={exp.id} exp={exp} cardName={c.name} personName={personName(exp.profile_id)} showPerson={isAdmin}
-                                  onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} />
-                              ))
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </Panel>
-              </div>
-            ))}
-          </div>
-        );
-      })()}
-
       {showForm && (
-        <ExpenseForm cards={myCards} userId={isAdmin ? (editing?.profile_id || data.profiles[0].id) : profile.id} initial={editing}
-          onSave={handleSave} onClose={() => setShowForm(false)} />
+        <ExpenseForm cards={myCards} userId={editing?.profile_id || profile.id} initial={editing}
+          onSave={handleSave} onClose={() => setShowForm(false)}
+          profiles={isAdmin ? data.profiles : null} />
       )}
     </div>
   );
@@ -1436,7 +1498,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const myCards = data.cards.filter((c) => c.memberIds.includes(profile.id));
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
-    { id: "history", label: "Histórico", icon: <ListChecks size={18} /> },
+    { id: "history", label: "Faturas", icon: <ListChecks size={18} /> },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
     { id: "goals", label: "Metas", icon: <Target size={18} /> },
   ];
@@ -1461,7 +1523,7 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "cards", label: "Cartões", icon: <CreditCard size={18} /> },
-    { id: "history", label: "Histórico", icon: <ListChecks size={18} /> },
+    { id: "history", label: "Faturas", icon: <ListChecks size={18} /> },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
     { id: "goals", label: "Metas", icon: <Target size={18} /> },
   ];
@@ -1475,7 +1537,7 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
       {tab === "reports" && <ReportsScreen profile={profile} data={data} isAdmin />}
       {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
       {data.cards.length > 0 && <FloatingAddButton onClick={() => setShowQuickAdd(true)} />}
-      {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} />}
+      {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} profiles={data.profiles} />}
       <BottomNav tabs={tabs} tab={tab} setTab={setTab} />
     </>
   );
