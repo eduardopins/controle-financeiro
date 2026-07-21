@@ -571,7 +571,7 @@ async function extractReceiptData(file) {
 
 /* ---------------------------------- EXPENSE FORM ---------------------------------- */
 
-function ExpenseForm({ cards, userId, onSave, onClose, initial, profiles, allProfiles, customCategories, onAddCategory }) {
+function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, customCategories, onAddCategory }) {
   const [selectedUserId, setSelectedUserId] = useState(initial?.profile_id || userId);
   const [cardId, setCardId] = useState(initial?.card_id || cards[0]?.id || "");
   const [category, setCategory] = useState(initial?.category || CATEGORIES[0]);
@@ -588,11 +588,20 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, profiles, allPro
   const [importing, setImporting] = useState(false);
   const [importNote, setImportNote] = useState("");
   const [err, setErr] = useState("");
-  const splitCandidates = (allProfiles || []).filter((p) => p.id !== selectedUserId);
+  const people = allProfiles || [];
+  const splitCandidates = people.filter((p) => p.id !== selectedUserId);
   const [splitEnabled, setSplitEnabled] = useState(false);
   const [splitWith, setSplitWith] = useState(splitCandidates[0]?.id || "");
   const [splitPct, setSplitPct] = useState(50);
   const categoryOptions = [...CATEGORIES, ...(customCategories || []).filter((c) => c.profile_id === selectedUserId).map((c) => c.name)];
+
+  const totalNum = parseFloat(totalAmount) || 0;
+  const pct = Math.min(100, Math.max(0, parseFloat(splitPct) || 0));
+  const amountA = totalNum * (pct / 100);
+  const amountB = totalNum - amountA;
+  const onChangePct = (v) => setSplitPct(v);
+  const onChangeAmountA = (v) => { const n = parseFloat(v) || 0; setSplitPct(totalNum > 0 ? (n / totalNum) * 100 : 0); };
+  const onChangeAmountB = (v) => { const n = parseFloat(v) || 0; setSplitPct(totalNum > 0 ? 100 - (n / totalNum) * 100 : 0); };
 
   const submitNewCategory = async () => {
     const name = newCategoryName.trim();
@@ -636,13 +645,12 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, profiles, allPro
       };
       let toSave;
       if (splitEnabled && splitWith) {
-        const pct = Math.min(100, Math.max(0, parseFloat(splitPct) || 50));
         toSave = [
-          { ...base, id: initial?.id, userId: selectedUserId, totalAmount: parseFloat(totalAmount) * (pct / 100), receiptUrl },
-          { ...base, userId: splitWith, totalAmount: parseFloat(totalAmount) * ((100 - pct) / 100), receiptUrl: null },
+          { ...base, id: initial?.id, userId: selectedUserId, totalAmount: amountA, receiptUrl },
+          { ...base, userId: splitWith, totalAmount: amountB, receiptUrl: null },
         ];
       } else {
-        toSave = [{ ...base, id: initial?.id, userId: selectedUserId, totalAmount: parseFloat(totalAmount), receiptUrl }];
+        toSave = [{ ...base, id: initial?.id, userId: selectedUserId, totalAmount: totalNum, receiptUrl }];
       }
       await onSave(toSave);
       onClose();
@@ -662,20 +670,26 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, profiles, allPro
           {importNote && !importing && <p className="text-xs mt-1.5" style={{ color: C.gold }}>{importNote}</p>}
         </Field>
       )}
-      {profiles && (
-        <Field label="Pessoa">
-          <Select value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}>
-            {profiles.map((p) => <option key={p.id} value={p.id}>{firstName(p.name)}</option>)}
+
+      <p className="text-[10px] font-semibold tracking-wide uppercase mb-2" style={{ color: C.gold }}>Quem e onde</p>
+      <div className={people.length > 1 ? "grid grid-cols-2 gap-3 mb-3.5" : "mb-3.5"}>
+        {people.length > 1 && (
+          <Field label="Pessoa">
+            <Select value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}>
+              {people.map((p) => <option key={p.id} value={p.id}>{firstName(p.name)}</option>)}
+            </Select>
+          </Field>
+        )}
+        <Field label="Cartão">
+          <Select value={cardId} onChange={(e) => setCardId(e.target.value)}>
+            {cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
         </Field>
-      )}
-      <Field label="Cartão">
-        <Select value={cardId} onChange={(e) => setCardId(e.target.value)}>
-          {cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </Select>
-      </Field>
+      </div>
+
+      <p className="text-[10px] font-semibold tracking-wide uppercase mb-2" style={{ color: C.gold }}>O que foi</p>
       <Field label="Descrição"><TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: Supermercado" /></Field>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 mb-3.5">
         <Field label="Categoria">
           {addingCategory ? (
             <div className="flex gap-1.5">
@@ -692,6 +706,8 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, profiles, allPro
         </Field>
         <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={totalAmount} onChange={(e) => setTotalAmount(e.target.value)} placeholder="0,00" /></Field>
       </div>
+
+      <p className="text-[10px] font-semibold tracking-wide uppercase mb-2" style={{ color: C.gold }}>Quando</p>
       <Field label="Data da compra"><TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
 
       <label className="flex items-center gap-2 text-sm mb-3.5" style={{ color: C.text }}>
@@ -708,29 +724,29 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, profiles, allPro
 
       {!initial && splitCandidates.length > 0 && (
         <div className="mb-3.5">
+          <p className="text-[10px] font-semibold tracking-wide uppercase mb-2" style={{ color: C.gold }}>Dividir</p>
           <label className="flex items-center gap-2 text-sm mb-2" style={{ color: C.text }}>
             <input type="checkbox" checked={splitEnabled} onChange={(e) => { setSplitEnabled(e.target.checked); if (!splitWith) setSplitWith(splitCandidates[0]?.id || ""); }} />
             Dividir com outra pessoa
           </label>
           {splitEnabled && (
             <div className="rounded-xl p-3" style={{ background: C.bgSoft, border: `1px solid ${C.border}` }}>
-              <div className="grid grid-cols-2 gap-3 mb-2">
-                <Field label="Dividir com">
-                  <Select value={splitWith} onChange={(e) => setSplitWith(e.target.value)}>
-                    {splitCandidates.map((p) => <option key={p.id} value={p.id}>{firstName(p.name)}</option>)}
-                  </Select>
+              <Field label="Dividir com">
+                <Select value={splitWith} onChange={(e) => setSplitWith(e.target.value)}>
+                  {splitCandidates.map((p) => <option key={p.id} value={p.id}>{firstName(p.name)}</option>)}
+                </Select>
+              </Field>
+              <div className="grid grid-cols-3 gap-2.5">
+                <Field label={`${firstName(people.find((p) => p.id === selectedUserId)?.name || "Você")} (R$)`}>
+                  <TextInput type="number" step="0.01" value={amountA ? amountA.toFixed(2) : ""} onChange={(e) => onChangeAmountA(e.target.value)} />
                 </Field>
                 <Field label="Sua parte (%)">
-                  <TextInput type="number" min="0" max="100" value={splitPct} onChange={(e) => setSplitPct(e.target.value)} />
+                  <TextInput type="number" min="0" max="100" value={splitPct} onChange={(e) => onChangePct(e.target.value)} />
+                </Field>
+                <Field label={`${firstName(splitCandidates.find((p) => p.id === splitWith)?.name || "")} (R$)`}>
+                  <TextInput type="number" step="0.01" value={amountB ? amountB.toFixed(2) : ""} onChange={(e) => onChangeAmountB(e.target.value)} />
                 </Field>
               </div>
-              {totalAmount && (
-                <p className="text-xs" style={{ color: C.muted }}>
-                  Você: <b style={{ color: C.text }}>{brl((parseFloat(totalAmount) || 0) * (Math.min(100, Math.max(0, splitPct || 0)) / 100))}</b>
-                  {" · "}
-                  {firstName(splitCandidates.find((p) => p.id === splitWith)?.name || "")}: <b style={{ color: C.text }}>{brl((parseFloat(totalAmount) || 0) * (1 - Math.min(100, Math.max(0, splitPct || 0)) / 100))}</b>
-                </p>
-              )}
             </div>
           )}
         </div>
@@ -1452,7 +1468,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
       {showForm && (
         <ExpenseForm cards={myCards} userId={editing?.profile_id || profile.id} initial={editing}
           onSave={handleSave} onClose={() => setShowForm(false)}
-          profiles={isAdmin ? data.profiles : null} allProfiles={data.profiles}
+          allProfiles={data.profiles}
           customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />
       )}
       {showImportCSV && (
@@ -1553,13 +1569,10 @@ function MemberOverview({ profile, data, refresh }) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <div className="flex items-center justify-between">
-        <ScreenHeader title={`Olá, ${profile.name.split(" ")[0]}`} subtitle="Seu mês" />
-        <button onClick={handleShare} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mb-4" style={{ border: `1px solid ${C.border}` }}>
-          <Share2 size={15} color={C.gold} />
-        </button>
-      </div>
+      <ScreenHeader title={`Olá, ${profile.name.split(" ")[0]}`} subtitle="Seu mês" />
       <HeroPanel label="Total do mês" value={myMonthTotal} />
+      <Btn variant="ghost" full onClick={handleShare}><Share2 size={15} /> Compartilhar resumo do mês</Btn>
+      <div className="h-4" />
       <IncomeSection profile={profile} data={data} refresh={refresh} />
 
       {myCards.length > 0 ? (
@@ -1595,14 +1608,10 @@ function AdminOverview({ profile, data, refresh }) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <div className="flex items-center justify-between">
-        <ScreenHeader title="Visão geral" subtitle="Este mês" />
-        <button onClick={handleShare} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mb-4" style={{ border: `1px solid ${C.border}` }}>
-          <Share2 size={15} color={C.gold} />
-        </button>
-      </div>
+      <ScreenHeader title="Visão geral" subtitle="Este mês" />
       <div className="space-y-4">
         <HeroPanel label="Total do mês" value={totalMonth} />
+        <Btn variant="ghost" full onClick={handleShare}><Share2 size={15} /> Compartilhar resumo do mês</Btn>
         <IncomeSection profile={profile} data={data} refresh={refresh} />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {byPerson.map((p) => (
@@ -1960,7 +1969,7 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
       {tab === "reports" && <ReportsScreen profile={profile} data={data} isAdmin />}
       {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
       {data.cards.length > 0 && <FloatingAddButton onClick={() => setShowQuickAdd(true)} />}
-      {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} profiles={data.profiles} allProfiles={data.profiles}
+      {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles}
         customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
       <BottomNav tabs={tabs} tab={tab} setTab={setTab} />
     </>
