@@ -268,6 +268,38 @@ function IconField({ icon, ...props }) {
   );
 }
 
+function formatMoneyFromCents(cents) {
+  const reais = Math.floor(cents / 100);
+  const centsPart = (cents % 100).toString().padStart(2, "0");
+  return `${reais.toLocaleString("pt-BR")},${centsPart}`;
+}
+function CurrencyInput({ value, onChange, placeholder = "0,00", style, autoFocus }) {
+  const [display, setDisplay] = useState(() => {
+    const cents = value !== "" && value != null && !isNaN(value) ? Math.round(parseFloat(value) * 100) : 0;
+    return cents ? formatMoneyFromCents(cents) : "";
+  });
+  useEffect(() => {
+    const cents = value !== "" && value != null && !isNaN(value) ? Math.round(parseFloat(value) * 100) : 0;
+    setDisplay(cents ? formatMoneyFromCents(cents) : "");
+  }, [value]);
+  const handleChange = (e) => {
+    const raw = e.target.value.replace(/\D/g, "");
+    if (!raw) { setDisplay(""); onChange(""); return; }
+    const cents = parseInt(raw, 10);
+    setDisplay(formatMoneyFromCents(cents));
+    onChange(String(cents / 100));
+  };
+  return <TextInput inputMode="numeric" value={display} onChange={handleChange} placeholder={placeholder} style={style} autoFocus={autoFocus} />;
+}
+function CurrencyIconField({ icon, value, onChange, style }) {
+  return (
+    <div className="relative">
+      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: C.muted }}>{icon}</span>
+      <CurrencyInput value={value} onChange={onChange} style={{ paddingLeft: 26, ...(style || {}) }} />
+    </div>
+  );
+}
+
 /* ---------------------------------- UI atoms ---------------------------------- */
 
 function Panel({ children, style, className = "" }) {
@@ -723,7 +755,7 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
             </Select>
           )}
         </Field>
-        <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={totalAmount} onChange={(e) => setTotalAmount(e.target.value)} placeholder="0,00" /></Field>
+        <Field label="Valor (R$)"><CurrencyInput value={totalAmount} onChange={setTotalAmount} /></Field>
       </div>
 
       <p className="text-[10px] font-semibold tracking-wide uppercase mb-2" style={{ color: C.gold }}>Quando</p>
@@ -770,13 +802,13 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
 
               <div className="grid grid-cols-3 gap-2.5">
                 <Field label={`${firstName(people.find((p) => p.id === selectedUserId)?.name || "Você")}`}>
-                  <IconField icon={<DollarSign size={13} />} type="number" step="0.01" value={amountA ? amountA.toFixed(2) : ""} onChange={(e) => onChangeAmountA(e.target.value)} />
+                  <CurrencyIconField icon={<DollarSign size={13} />} value={amountA ? String(amountA) : ""} onChange={(v) => onChangeAmountA(v)} />
                 </Field>
                 <Field label="Sua parte">
                   <IconField icon={<Percent size={13} />} type="number" min="0" max="100" value={splitPct} onChange={(e) => onChangePct(e.target.value)} />
                 </Field>
                 <Field label={`${firstName(splitCandidates.find((p) => p.id === splitWith)?.name || "")}`}>
-                  <IconField icon={<DollarSign size={13} />} type="number" step="0.01" value={amountB ? amountB.toFixed(2) : ""} onChange={(e) => onChangeAmountB(e.target.value)} />
+                  <CurrencyIconField icon={<DollarSign size={13} />} value={amountB ? String(amountB) : ""} onChange={(v) => onChangeAmountB(v)} />
                 </Field>
               </div>
             </div>
@@ -839,7 +871,7 @@ function CardForm({ allProfiles, onSave, onClose, initial }) {
           Identificamos: {detectBank(name).label}
         </div>
       )}
-      <Field label="Limite total (R$)"><TextInput type="number" step="0.01" value={limit} onChange={(e) => setLimit(e.target.value)} /></Field>
+      <Field label="Limite total (R$)"><CurrencyInput value={limit} onChange={setLimit} /></Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Dia de fechamento"><TextInput type="number" min="1" max="31" value={closingDay} onChange={(e) => setClosingDay(e.target.value)} /></Field>
         <Field label="Dia de vencimento"><TextInput type="number" min="1" max="31" value={dueDay} onChange={(e) => setDueDay(e.target.value)} /></Field>
@@ -973,7 +1005,7 @@ function IncomeForm({ profileId, onSave, onClose, initial }) {
   return (
     <Modal title={initial ? "Editar receita" : "Nova receita"} onClose={onClose}>
       <Field label="Descrição"><TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: Salário" /></Field>
-      <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00" /></Field>
+      <Field label="Valor (R$)"><CurrencyInput value={amount} onChange={setAmount} /></Field>
       <Field label="Data"><TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
       <label className="flex items-center gap-2.5 text-sm mb-3.5" style={{ color: C.text }}>
         <Switch checked={isRecurring} onChange={setIsRecurring} />
@@ -1097,7 +1129,7 @@ function GoalsScreen({ profile, data, refresh }) {
 
               {isEditing ? (
                 <div className="flex gap-2 items-center">
-                  <TextInput type="number" value={value} onChange={(e) => setValue(e.target.value)} placeholder="Valor da meta (R$)" autoFocus />
+                  <CurrencyInput value={value} onChange={setValue} placeholder="Valor da meta (R$)" />
                   <Btn onClick={submit}><Check size={14} /></Btn>
                 </div>
               ) : budget ? (
