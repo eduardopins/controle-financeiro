@@ -1575,6 +1575,19 @@ export default function App() {
     })();
   }, [authUser, refresh]);
 
+  useEffect(() => {
+    if (!authUser) return;
+    const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    const interval = setInterval(refresh, 60000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      clearInterval(interval);
+    };
+  }, [authUser, refresh]);
+
   if (authUser === undefined) return <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg, color: C.muted }}>Carregando…</div>;
   if (!authUser) return <Login onLogin={setAuthUser} theme={theme} onToggleTheme={toggleTheme} />;
   if (!profile || !data) return <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg, color: C.muted }}>{error || "Carregando…"}</div>;
