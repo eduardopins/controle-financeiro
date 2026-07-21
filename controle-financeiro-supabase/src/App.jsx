@@ -963,9 +963,28 @@ function GoalsScreen({ profile, data, refresh }) {
   );
 }
 
-function invoiceMonths() {
+function invoiceMonths(expenses, cardIds) {
   const now = currentMonthKey();
-  return Array.from({ length: 6 }, (_, i) => addMonthsToKey(now, i - 3));
+  const forward = Array.from({ length: 12 }, (_, i) => addMonthsToKey(now, i));
+  const pastSet = new Set();
+  expenses.filter((e) => cardIds.includes(e.card_id)).forEach((e) => {
+    if (e.is_recurring) {
+      let mk = e.first_month;
+      let guard = 0;
+      while (diffMonths(mk, now) > 0 && guard < 600) {
+        pastSet.add(mk);
+        mk = addMonthsToKey(mk, 1);
+        guard++;
+      }
+    } else {
+      for (let i = 0; i < e.installments; i++) {
+        const mk = addMonthsToKey(e.first_month, i);
+        if (diffMonths(mk, now) > 0) pastSet.add(mk);
+      }
+    }
+  });
+  const past = Array.from(pastSet).sort();
+  return [...past, ...forward];
 }
 function invoiceStatusInfo(card, monthKey) {
   const now = currentMonthKey();
@@ -1066,7 +1085,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
       {viewMode === "faturas" && (() => {
         const scopedExpenses = baseExpenses.filter((e) => !isAdmin || filterPerson === "all" || e.profile_id === filterPerson);
         const invoiceCards = filterCard === "all" ? myCards : myCards.filter((c) => c.id === filterCard);
-        const months = invoiceMonths();
+        const months = invoiceMonths(scopedExpenses, invoiceCards.map((c) => c.id));
         const lineItems = scopedExpenses
           .filter((e) => invoiceCards.some((c) => c.id === e.card_id) && isDueIn(e, selectedMonth))
           .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date));
