@@ -1200,10 +1200,36 @@ function investmentBalance(investmentId, transactions) {
   return transactions.filter((t) => t.investment_id === investmentId)
     .reduce((s, t) => s + (t.type === "deposit" ? t.amount : -t.amount), 0);
 }
-function investmentMonthlyRate(inv) {
-  if (!inv.cdi_percent || !inv.cdi_annual_rate) return null;
-  const annualEffective = (inv.cdi_annual_rate / 100) * (inv.cdi_percent / 100);
+function investmentMonthlyRate(inv, cdiAnnual) {
+  if (!inv.cdi_percent || !cdiAnnual) return null;
+  const annualEffective = (cdiAnnual / 100) * (inv.cdi_percent / 100);
   return (Math.pow(1 + annualEffective, 1 / 12) - 1) * 100;
+}
+function useCurrentCDI() {
+  const [cdi, setCdi] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    (async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      let cached = null;
+      try { cached = JSON.parse(localStorage.getItem("cdi-annual-rate") || "null"); } catch {}
+      if (cached && cached.date === today) {
+        setCdi(cached.rate);
+        setLoading(false);
+        return;
+      }
+      try {
+        const rate = await fetchCurrentCDI();
+        try { localStorage.setItem("cdi-annual-rate", JSON.stringify({ date: today, rate })); } catch {}
+        setCdi(rate);
+      } catch {
+        if (cached) setCdi(cached.rate);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+  return { cdi, loading };
 }
 
 async function fetchCurrentCDI() {
@@ -1218,24 +1244,10 @@ async function fetchCurrentCDI() {
 function InvestmentForm({ allProfiles, onSave, onClose, initial }) {
   const [name, setName] = useState(initial?.name || "");
   const [cdiPercent, setCdiPercent] = useState(initial?.cdi_percent != null ? String(initial.cdi_percent) : "100");
-  const [cdiAnnualRate, setCdiAnnualRate] = useState(initial?.cdi_annual_rate != null ? String(initial.cdi_annual_rate) : "");
   const [memberIds, setMemberIds] = useState(initial?.memberIds || []);
   const [saving, setSaving] = useState(false);
-  const [fetchingCdi, setFetchingCdi] = useState(false);
   const [err, setErr] = useState("");
   const toggle = (id) => setMemberIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
-
-  const handleFetchCdi = async () => {
-    setFetchingCdi(true); setErr("");
-    try {
-      const rate = await fetchCurrentCDI();
-      setCdiAnnualRate(rate.toFixed(2));
-    } catch {
-      setErr("Não consegui buscar o CDI agora. Preencha manualmente ou tente de novo.");
-    } finally {
-      setFetchingCdi(false);
-    }
-  };
 
   const submit = async () => {
     if (!name.trim()) return;
@@ -1244,7 +1256,6 @@ function InvestmentForm({ allProfiles, onSave, onClose, initial }) {
       await onSave({
         id: initial?.id, name: name.trim(),
         cdi_percent: cdiPercent ? parseFloat(cdiPercent) : null,
-        cdi_annual_rate: cdiAnnualRate ? parseFloat(cdiAnnualRate) : null,
         memberIds,
       });
       onClose();
@@ -1257,13 +1268,8 @@ function InvestmentForm({ allProfiles, onSave, onClose, initial }) {
   return (
     <Modal title={initial ? "Editar caixinha" : "Nova caixinha"} onClose={onClose}>
       <Field label="Nome da caixinha"><TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Reserva de emergência" /></Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="% do CDI"><IconField icon={<Percent size={13} />} type="number" step="1" value={cdiPercent} onChange={(e) => setCdiPercent(e.target.value)} placeholder="115" /></Field>
-        <Field label="CDI atual (% ao ano)"><IconField icon={<Percent size={13} />} type="number" step="0.01" value={cdiAnnualRate} onChange={(e) => setCdiAnnualRate(e.target.value)} placeholder="Ex: 10,75" /></Field>
-      </div>
-      <button onClick={handleFetchCdi} disabled={fetchingCdi} className="flex items-center gap-1.5 text-xs mb-3.5" style={{ color: C.gold }}>
-        <TrendingUp size={12} /> {fetchingCdi ? "Buscando..." : "Buscar CDI atual (Banco Central)"}
-      </button>
+      <Field label="% do CDI"><IconField icon={<Percent size={13} />} type="number" step="1" value={cdiPercent} onChange={(e) => setCdiPercent(e.target.value)} placeholder="115" /></Field>
+      <p className="text-[11px] -mt-2.5 mb-3.5" style={{ color: C.muted }}>O CDI atual é buscado automaticamente e vale pra todas as caixinhas — não precisa informar aqui.</p>
       <Field label="Quem mais tem acesso a essa caixinha">
         <div className="flex flex-col gap-2 mt-1">
           {allProfiles.map((p) => (
@@ -1321,7 +1327,7 @@ function InvestmentTransactionForm({ investmentId, profileId, defaultType, onSav
   );
 }
 
-function InvestmentCard({ inv, balance, profiles, viewerProfileId, isAdmin, onMove, onEdit, onDelete }) {
+function InvestmentCard({ inv, balance, profiles, viewerProfileId, isAdmin, cdiAnnual, onMove, onEdit, onDelete }) {
   const canManage = isAdmin || inv.created_by === viewerProfileId;
   const owners = profiles.filter((p) => inv.memberIds.includes(p.id) || p.id === inv.created_by).map((p) => firstName(p.name)).join(", ");
   return (
@@ -1349,7 +1355,7 @@ function InvestmentCard({ inv, balance, profiles, viewerProfileId, isAdmin, onMo
       <span className="text-[11px] block mt-2" style={{ color: C.muted }}>saldo</span>
       <div className="mb-3"><Amount value={balance} size="text-2xl" tone="green" /></div>
       {(() => {
-        const rate = investmentMonthlyRate(inv);
+        const rate = investmentMonthlyRate(inv, cdiAnnual);
         return rate != null && (
           <p className="text-[11px] mb-3" style={{ color: C.muted }}>rende ~{rate.toFixed(2)}% ao mês · projeção {brl(balance * (1 + rate / 100))}</p>
         );
@@ -1366,6 +1372,7 @@ function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [moveTarget, setMoveTarget] = useState(null);
+  const { cdi, loading: cdiLoading } = useCurrentCDI();
 
   const myInvestments = isAdmin
     ? data.investments
@@ -1382,12 +1389,16 @@ function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
       <ScreenHeader title="Investimentos" subtitle="Caixinhas de renda fixa" />
       <HeroPanel label="Saldo total investido" value={totalBalance} />
+      <div className="flex items-center gap-1.5 mb-4 text-xs" style={{ color: C.muted }}>
+        <TrendingUp size={12} color={C.green} />
+        {cdiLoading ? "Buscando CDI atual..." : cdi != null ? `CDI atual: ${cdi.toFixed(2)}% ao ano` : "Não foi possível buscar o CDI agora"}
+      </div>
       <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Nova caixinha</Btn>
       <div className="mt-4 space-y-3">
         {myInvestments.length === 0 && <Panel><EmptyState icon={<PiggyBank size={28} />} text="Nenhuma caixinha ainda. Crie a primeira." /></Panel>}
         {myInvestments.map((inv) => (
           <InvestmentCard key={inv.id} inv={inv} balance={investmentBalance(inv.id, data.investmentTransactions)} profiles={data.profiles}
-            viewerProfileId={profile.id} isAdmin={isAdmin}
+            viewerProfileId={profile.id} isAdmin={isAdmin} cdiAnnual={cdi}
             onMove={(i, type) => setMoveTarget({ inv: i, type })}
             onEdit={(i) => { setEditing(i); setShowForm(true); }}
             onDelete={handleDeleteInvestment} />
