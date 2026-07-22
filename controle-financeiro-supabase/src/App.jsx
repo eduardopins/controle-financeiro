@@ -185,7 +185,7 @@ function anyCardAlert(cards, expenses) {
 }
 
 function accessibleCards(data, profileId) {
-  return data.cards.filter((c) => c.memberIds.includes(profileId) || data.expenses.some((e) => e.card_id === c.id && e.profile_id === profileId));
+  return data.cards.filter((c) => c.memberIds.includes(profileId));
 }
 
 /* ---------------------------------- font injection ---------------------------------- */
@@ -759,18 +759,9 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
       <Field label="Descrição"><TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: Supermercado" /></Field>
       <div className="grid grid-cols-2 gap-3 mb-3.5">
         <Field label="Categoria">
-          {addingCategory ? (
-            <div className="flex gap-1.5">
-              <TextInput value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="Nome da categoria" autoFocus />
-              <button onClick={submitNewCategory}><Check size={16} color={C.green} /></button>
-              <button onClick={() => { setAddingCategory(false); setNewCategoryName(""); }}><X size={16} color={C.muted} /></button>
-            </div>
-          ) : (
-            <Select value={category} onChange={(e) => e.target.value === "__add__" ? setAddingCategory(true) : setCategory(e.target.value)}>
-              {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-              <option value="__add__">+ Nova categoria...</option>
-            </Select>
-          )}
+          <Select value={category} onChange={(e) => setCategory(e.target.value)}>
+            {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+          </Select>
         </Field>
         <Field label="Valor (R$)"><CurrencyInput value={totalAmount} onChange={setTotalAmount} /></Field>
       </div>
@@ -1134,7 +1125,7 @@ function IncomeSection({ profile, data, refresh }) {
       background: `linear-gradient(160deg, ${saldo < 0 ? "rgba(168,80,79,0.10)" : "rgba(47,122,92,0.10)"}, ${C.surface} 55%)`,
       border: `1px solid ${saldo < 0 ? "rgba(168,80,79,0.32)" : "rgba(47,122,92,0.28)"}`,
     }}>
-      <div className="flex items-start justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: saldo < 0 ? "rgba(168,80,79,0.16)" : "rgba(47,122,92,0.16)" }}>
             {saldo < 0 ? <TrendingDown size={19} color={C.rose} /> : <TrendingUp size={19} color={C.green} />}
@@ -1145,10 +1136,10 @@ function IncomeSection({ profile, data, refresh }) {
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
-          <button onClick={() => setShowExpenseForm(true)} className="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2" style={{ background: C.bgSoft, color: C.text, border: `1px solid ${C.border}` }}>
+          <button onClick={() => setShowExpenseForm(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2" style={{ background: C.bgSoft, color: C.text, border: `1px solid ${C.border}` }}>
             <Plus size={14} /> Gasto
           </button>
-          <button onClick={() => setShowForm(true)} className="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2" style={{ background: C.gold, color: "#1A1607" }}>
+          <button onClick={() => setShowForm(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2" style={{ background: C.gold, color: "#1A1607" }}>
             <Plus size={14} /> Receita
           </button>
         </div>
@@ -1514,12 +1505,13 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
   const invoiceScopedExpenses = baseExpenses.filter((e) => !isAdmin || filterPerson === "all" || e.profile_id === filterPerson);
   const invoiceCards = filterCard === "all" ? myCards : myCards.filter((c) => c.id === filterCard);
-  const invoiceMonthsList = invoiceMonths(invoiceScopedExpenses, invoiceCards.map((c) => c.id)).filter((mk) => /^\d{4}-\d{2}$/.test(mk));
+  const invoiceCardIdsForMonths = [...new Set([...invoiceScopedExpenses.map((e) => e.card_id).filter(Boolean), ...myCards.map((c) => c.id)])];
+  const invoiceMonthsList = invoiceMonths(invoiceScopedExpenses, invoiceCardIdsForMonths).filter((mk) => /^\d{4}-\d{2}$/.test(mk));
   const invoiceLineItems = invoiceScopedExpenses
-    .filter((e) => invoiceCards.some((c) => c.id === e.card_id) && isDueIn(e, selectedMonth))
+    .filter((e) => (filterCard === "all" || e.card_id === filterCard) && isDueIn(e, selectedMonth))
     .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date));
   const invoiceTotal = invoiceLineItems.reduce((s, e) => s + monthlyValue(e), 0);
-  const invoiceSingleCard = invoiceCards.length === 1 ? invoiceCards[0] : null;
+  const invoiceSingleCard = filterCard !== "all" ? invoiceCards.find((c) => c.id === filterCard) : null;
   const invoiceStatus = invoiceSingleCard ? invoiceStatusInfo(invoiceSingleCard, selectedMonth) : null;
 
   useEffect(() => {
@@ -1575,8 +1567,8 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
       )}
 
       {viewMode === "faturas" && (
-        invoiceCards.length === 0 ? (
-          <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão disponível." /></Panel>
+        invoiceMonthsList.length === 0 ? (
+          <Panel><EmptyState icon={<CreditCard size={28} />} text="Nada por aqui ainda." /></Panel>
         ) : (
           <>
             <div className="flex gap-1.5 mb-3 items-center">
@@ -2023,33 +2015,24 @@ function ReportsScreen({ profile, data, isAdmin }) {
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28 space-y-4">
       <ScreenHeader title="Relatórios" subtitle={isAdmin ? `Panorama financeiro · ${scopeLabel}` : "Seu panorama financeiro"} />
-      <div className="flex flex-wrap gap-1.5 items-center mb-3">
-        {isAdmin && (
-          <>
-            <button onClick={() => setSelectedIds([])}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
-              style={{ background: selectedIds.length === 0 ? C.gold : "transparent", color: selectedIds.length === 0 ? "#1A1607" : C.muted, border: `1px solid ${selectedIds.length === 0 ? C.gold : C.border}` }}>
-              Todos
-            </button>
-            {data.profiles.map((p) => {
-              const active = selectedIds.includes(p.id);
-              return (
-                <button key={p.id} onClick={() => setSelectedIds((prev) => {
-                  if (prev.includes(p.id)) return prev.filter((x) => x !== p.id);
-                  const next = [...prev, p.id];
-                  return next.length > 2 ? next.slice(1) : next;
-                })}
-                  className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
-                  style={{ background: active ? C.gold : "transparent", color: active ? "#1A1607" : C.muted, border: `1px solid ${active ? C.gold : C.border}` }}>
-                  {firstName(p.name)}
-                </button>
-              );
-            })}
-          </>
-        )}
-        <PeriodFilter value={period} onChange={setPeriod} customRange={customRange} onCustomChange={setCustomRange} />
-      </div>
+      <PeriodFilter value={period} onChange={setPeriod} customRange={customRange} onCustomChange={setCustomRange} />
       <HeroPanel label={heroLabel} value={totalPeriod} />
+
+      {isAdmin && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {data.profiles.map((p) => {
+            const active = selectedIds.includes(p.id);
+            const personTotal = categoryTotalsForMonths(data.expenses, monthKeys, [p.id]).reduce((s, d) => s + d.value, 0);
+            return (
+              <button key={p.id} onClick={() => setSelectedIds((prev) => prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id])}
+                className="text-left rounded-2xl p-4 transition-all" style={{ background: C.surface, border: `1px solid ${active ? C.gold : C.border}`, boxShadow: C.shadow }}>
+                <span className="text-[11px]" style={{ color: active ? C.gold : C.muted }}>{firstName(p.name)}</span>
+                <div className="mt-1"><Amount value={personTotal} size="text-lg" /></div>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <Panel>
         <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Por categoria</h4>
