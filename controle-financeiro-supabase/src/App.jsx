@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./lib/supabaseClient";
 import {
-  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
+  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, LabelList,
 } from "recharts";
 import {
   CreditCard, Plus, Pencil, Trash2, LogOut, LayoutGrid, Wallet, PieChart as PieIcon,
@@ -373,36 +373,37 @@ function EmptyState({ icon, text }) {
   );
 }
 function periodPresetLabel(id) {
-  return { month: "Este mês", "1m": "1 mês", "3m": "3 meses", "6m": "6 meses", "12m": "12 meses", custom: "Personalizado" }[id];
+  return { month: "Este mês", last_month: "Mês passado", "3m": "Últimos 3 meses", "6m": "Últimos 6 meses", year: "Este ano", custom: "Personalizado" }[id];
 }
 function PeriodFilter({ value, onChange, customRange, onCustomChange }) {
   const [open, setOpen] = useState(false);
-  const presets = ["month", "1m", "3m", "6m", "12m", "custom"];
+  const presets = ["month", "last_month", "3m", "6m", "year", "custom"];
   return (
     <>
-      <button onClick={() => setOpen((v) => !v)} className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
-        style={{ background: open ? C.gold : "transparent", color: open ? "#1A1607" : C.muted, border: `1px solid ${open ? C.gold : C.border}` }}>
-        <Clock size={12} /> {periodPresetLabel(value)}
-        <ChevronRight size={13} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+      <button onClick={() => setOpen(true)} className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all"
+        style={{ background: C.surface, color: C.text, border: `1px solid ${C.border}` }}>
+        <Clock size={13} color={C.gold} /> {periodPresetLabel(value)} <ChevronRight size={13} color={C.muted} />
       </button>
       {open && (
-        <div className="w-full mt-2">
-          <div className="flex gap-1.5 flex-wrap mb-2">
+        <Modal title="Filtrar por período" onClose={() => setOpen(false)}>
+          <div className="space-y-2 mb-2">
             {presets.map((p) => (
               <button key={p} onClick={() => { onChange(p); if (p !== "custom") setOpen(false); }}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
-                style={{ background: value === p ? C.gold : "transparent", color: value === p ? "#1A1607" : C.muted, border: `1px solid ${value === p ? C.gold : C.border}` }}>
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-all"
+                style={{ background: value === p ? C.gold : C.bgSoft, color: value === p ? "#1A1607" : C.text, border: `1px solid ${value === p ? C.gold : C.border}` }}>
                 {periodPresetLabel(p)}
+                {value === p && <Check size={15} />}
               </button>
             ))}
           </div>
           {value === "custom" && (
-            <div className="grid grid-cols-2 gap-2">
-              <TextInput type="date" value={customRange.start} onChange={(e) => onCustomChange({ ...customRange, start: e.target.value })} />
-              <TextInput type="date" value={customRange.end} onChange={(e) => onCustomChange({ ...customRange, end: e.target.value })} />
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <Field label="De"><TextInput type="date" value={customRange.start} onChange={(e) => onCustomChange({ ...customRange, start: e.target.value })} /></Field>
+              <Field label="Até"><TextInput type="date" value={customRange.end} onChange={(e) => onCustomChange({ ...customRange, end: e.target.value })} /></Field>
             </div>
           )}
-        </div>
+          {value === "custom" && <Btn full onClick={() => setOpen(false)}>Aplicar</Btn>}
+        </Modal>
       )}
     </>
   );
@@ -2269,8 +2270,13 @@ function personColorFor(name, fallbackIndex) {
 }
 function monthKeysForPeriod(period, customRange) {
   const now = currentMonthKey();
-  const map = { "1m": 1, "3m": 3, "6m": 6, "12m": 12 };
+  if (period === "last_month") return [addMonthsToKey(now, -1)];
+  const map = { "3m": 3, "6m": 6 };
   if (map[period]) return Array.from({ length: map[period] }, (_, i) => addMonthsToKey(now, -i));
+  if (period === "year") {
+    const [, m] = now.split("-").map(Number);
+    return Array.from({ length: m }, (_, i) => addMonthsToKey(now, -i));
+  }
   if (period === "custom" && customRange.start && customRange.end) {
     const startKey = monthKeyFromDate(customRange.start);
     const endKey = monthKeyFromDate(customRange.end);
@@ -2324,6 +2330,7 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
   const [period, setPeriod] = useState("month");
   const [customRange, setCustomRange] = useState({ start: "", end: "" });
   const [selectedIds, setSelectedIds] = useState([]);
+  const [compareMonth, setCompareMonth] = useState(prevMonth);
 
   const scopeProfiles = isAdmin
     ? (selectedIds.length === 0 ? data.profiles : data.profiles.filter((p) => selectedIds.includes(p.id)))
@@ -2333,7 +2340,8 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
   const monthKeys = monthKeysForPeriod(period, customRange);
   const byCategory = categoryTotalsForMonths(data.expenses, monthKeys, scopeIds);
   const totalPeriod = byCategory.reduce((s, d) => s + d.value, 0);
-  const comparison = categoryComparison(data.expenses, now, prevMonth, scopeIds);
+  const comparison = categoryComparison(data.expenses, now, compareMonth, scopeIds);
+  const compareOptions = Array.from({ length: 12 }, (_, i) => addMonthsToKey(now, -(i + 1)));
 
   const months = last6Months();
   const evolution = months.map((mk) => {
@@ -2462,7 +2470,9 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
             <YAxis stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} tickFormatter={compactNumber} width={38} />
             <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} cursor={{ fill: "rgba(124,58,237,0.06)" }} />
             {scopeProfiles.map((u, i) => (
-              <Bar key={u.id} dataKey={firstName(u.name)} radius={[6, 6, 0, 0]} fill={personColorFor(u.name, i)} maxBarSize={22} />
+              <Bar key={u.id} dataKey={firstName(u.name)} radius={[6, 6, 0, 0]} fill={personColorFor(u.name, i)} maxBarSize={22}>
+                <LabelList dataKey={firstName(u.name)} position="top" formatter={(v) => (v > 0 ? compactNumber(v) : "")} fontSize={9} fill={C.muted} />
+              </Bar>
             ))}
           </BarChart>
         </ResponsiveContainer>
