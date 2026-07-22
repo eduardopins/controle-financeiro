@@ -531,7 +531,7 @@ function BottomNav({ tabs, tab, setTab }) {
 /* ---------------------------------- data layer (Supabase) ---------------------------------- */
 
 async function loadAll() {
-  const [profiles, cards, cardAccess, expenses, budgets, incomes, customCategories, investments, investmentAccess, investmentTx] = await Promise.all([
+  const [profiles, cards, cardAccess, expenses, budgets, incomes, customCategories, investments, investmentAccess, investmentTx, activityLog] = await Promise.all([
     supabase.from("profiles").select("*"),
     supabase.from("cards").select("*"),
     supabase.from("card_access").select("*"),
@@ -542,6 +542,7 @@ async function loadAll() {
     supabase.from("investments").select("*"),
     supabase.from("investment_access").select("*"),
     supabase.from("investment_transactions").select("*"),
+    supabase.from("activity_log").select("*").order("created_at", { ascending: false }).limit(100),
   ]);
   const cardsWithMembers = (cards.data || []).map((c) => ({
     ...c,
@@ -560,6 +561,7 @@ async function loadAll() {
     customCategories: customCategories.data || [],
     investments: investmentsWithAccess,
     investmentTransactions: investmentTx.data || [],
+    activityLog: activityLog.data || [],
   };
 }
 
@@ -733,8 +735,7 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh }) {
-  const [showSearch, setShowSearch] = useState(false);
+function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh, showSearch, setShowSearch }) {
   const [uploading, setUploading] = useState(false);
   const handleAvatarUpload = async (file) => {
     setUploading(true);
@@ -1366,6 +1367,18 @@ function IncomeForm({ profileId, onSave, onClose, initial }) {
   );
 }
 
+function projectMonthEnd(expenses, profileIds, monthKey = currentMonthKey()) {
+  const today = new Date();
+  const daysElapsed = today.getDate();
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const dueNow = expenses.filter((e) => profileIds.includes(e.profile_id) && isDueIn(e, monthKey));
+  const fixed = dueNow.filter((e) => e.is_recurring || e.installments > 1).reduce((s, e) => s + monthlyValue(e), 0);
+  const adhocSoFar = dueNow.filter((e) => !e.is_recurring && e.installments <= 1).reduce((s, e) => s + monthlyValue(e), 0);
+  const dailyRate = daysElapsed > 0 ? adhocSoFar / daysElapsed : 0;
+  const projectedTotal = fixed + dailyRate * daysInMonth;
+  return { projectedTotal, daysRemaining: daysInMonth - daysElapsed };
+}
+
 function IncomeSection({ profile, data, refresh, scopeIds, scopeLabel }) {
   const now = currentMonthKey();
   const ids = scopeIds && scopeIds.length > 0 ? scopeIds : [profile.id];
@@ -1373,6 +1386,9 @@ function IncomeSection({ profile, data, refresh, scopeIds, scopeLabel }) {
   const incomeMonth = (data.incomes || []).filter((i) => ids.includes(i.profile_id) && isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
   const expenseMonth = data.expenses.filter((e) => ids.includes(e.profile_id) && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
   const saldo = incomeMonth - expenseMonth;
+  const projection = projectMonthEnd(data.expenses, ids, now);
+  const projectedSaldo = incomeMonth - projection.projectedTotal;
+  const showProjection = projection.daysRemaining > 1 && Math.abs(projectedSaldo - saldo) > 1;
   const myInvestments = (data.investments || []).filter((inv) => inv.created_by === profile.id || inv.memberIds.includes(profile.id));
   const investedTotal = myInvestments.reduce((s, inv) => s + investmentBalance(inv.id, data.investmentTransactions || []), 0);
 
@@ -1409,6 +1425,13 @@ function IncomeSection({ profile, data, refresh, scopeIds, scopeLabel }) {
           <Amount value={expenseMonth} size="text-sm" tone="rose" />
         </div>
       </div>
+
+      {showProjection && (
+        <div className="flex items-center gap-1.5 pt-3 text-[11px]" style={{ color: C.muted }}>
+          <TrendingUp size={11} color={C.gold} />
+          no ritmo atual, deve fechar o mês com <b style={{ color: projectedSaldo < 0 ? C.rose : C.green }}>{brl(projectedSaldo)}</b> de saldo
+        </div>
+      )}
 
       {myInvestments.length > 0 && (
         <div className="flex items-center justify-between pt-3 pb-1 text-xs" style={{ color: C.muted }}>
@@ -2135,13 +2158,26 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
   const myCards = isAdmin ? data.cards : accessibleCards(data, profile.id);
 
-  const handleSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
-  const handleDelete = async (exp) => { if (!window.confirm("Excluir este gasto?")) return; await deleteExpense(exp); await refresh(); };
+  const handleSave = async (expArr) => {
+    const arr = Array.isArray(expArr) ? expArr : [expArr];
+    const isEdit = !!editing;
+    for (const e of arr) await saveExpense(e);
+    await refresh();
+    const desc = arr[0]?.description || "gasto";
+    await logActivity(profile.id, isEdit ? "editou" : "criou", `${isEdit ? "Editou" : "Lançou"} o gasto "${desc}"`);
+  };
+  const handleDelete = async (exp) => {
+    if (!window.confirm("Excluir este gasto?")) return;
+    await deleteExpense(exp);
+    await refresh();
+    await logActivity(profile.id, "excluiu", `Excluiu o gasto "${exp.description}"`);
+  };
   const handleToggleReconciled = async (exp) => { await toggleExpenseReconciled(exp.id, !exp.reconciled); await refresh(); };
   const handleDeleteGroup = async (parts) => {
     if (!window.confirm("Excluir este gasto dividido? As duas partes serão removidas.")) return;
     for (const p of parts) await deleteExpense(p);
     await refresh();
+    await logActivity(profile.id, "excluiu", `Excluiu o gasto dividido "${parts[0]?.description}"`);
   };
   const toggleSelect = (id) => setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   const applyBulk = async () => {
@@ -2671,6 +2707,56 @@ function PersonFilter({ profiles, selectedIds, onChange }) {
 
 /* ---------------------------------- ADMIN: REPORTS ---------------------------------- */
 
+function ReportTabs({ view, setView }) {
+  const items = [
+    { id: "charts", label: "Gráficos", icon: <PieIcon size={15} /> },
+    { id: "goals", label: "Metas", icon: <Target size={15} /> },
+    { id: "activity", label: "Atividade", icon: <History size={15} /> },
+  ];
+  return (
+    <div className="flex gap-2 mb-4">
+      {items.map((it) => {
+        const active = view === it.id;
+        return (
+          <button key={it.id} onClick={() => setView(it.id)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
+            style={{ background: active ? C.gold : C.surface, color: active ? "var(--gold-contrast)" : C.muted, border: `1px solid ${active ? C.gold : C.border}` }}>
+            {it.icon} {it.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ActivityLogScreen({ data, embedded }) {
+  const personName = (id) => firstName((data.profiles || []).find((p) => p.id === id)?.name) || "-";
+  const personProfile = (id) => (data.profiles || []).find((p) => p.id === id);
+  const log = data.activityLog || [];
+  return (
+    <div className={embedded ? "" : "max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16"}>
+      <Panel>
+        {log.length === 0 ? (
+          <EmptyState icon={<History size={28} />} text="Nenhuma atividade registrada ainda." />
+        ) : (
+          <div className="space-y-3.5">
+            {log.map((a) => (
+              <div key={a.id} className="flex items-start gap-3 pb-3.5" style={{ borderBottom: `1px solid ${C.border}` }}>
+                <Avatar profile={personProfile(a.profile_id)} size={28} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm" style={{ color: C.text }}>{a.description}</div>
+                  <div className="text-[11px]" style={{ color: C.muted }}>
+                    {personName(a.profile_id)} · {formatShortDate(a.created_at.slice(0, 10))} às {a.created_at.slice(11, 16)}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
 function ReportsScreen({ profile, data, refresh, isAdmin }) {
   const now = currentMonthKey();
   const prevMonth = addMonthsToKey(now, -1);
@@ -2724,15 +2810,18 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
     return (
       <div className="max-w-3xl mx-auto px-4 pt-5 lg:max-w-6xl lg:px-10 lg:pt-8">
         <ScreenHeader title="Relatórios" subtitle={isAdmin ? "Panorama financeiro" : "Seu panorama financeiro"} />
-        <div className="flex gap-2 mb-4">
-          <button onClick={() => setView("charts")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.surface, color: C.muted, border: `1px solid ${C.border}` }}>
-            <PieIcon size={15} /> Gráficos
-          </button>
-          <button onClick={() => setView("goals")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.gold, color: "var(--gold-contrast)", border: `1px solid ${C.gold}` }}>
-            <Target size={15} /> Metas
-          </button>
-        </div>
+        <ReportTabs view={view} setView={setView} />
         <GoalsScreen profile={profile} data={data} refresh={refresh} embedded />
+      </div>
+    );
+  }
+
+  if (view === "activity") {
+    return (
+      <div className="max-w-3xl mx-auto px-4 pt-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8">
+        <ScreenHeader title="Relatórios" subtitle={isAdmin ? "Panorama financeiro" : "Seu panorama financeiro"} />
+        <ReportTabs view={view} setView={setView} />
+        <ActivityLogScreen data={data} embedded />
       </div>
     );
   }
@@ -2775,14 +2864,7 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
         </table>
         <p style={{ fontSize: 10, color: "#999", marginTop: 24 }}>Gerado em {formatShortDate(new Date().toISOString().slice(0, 10))} pelo Controle Financeiro.</p>
       </div>
-      <div className="flex gap-2">
-        <button onClick={() => setView("charts")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.gold, color: "var(--gold-contrast)", border: `1px solid ${C.gold}` }}>
-          <PieIcon size={15} /> Gráficos
-        </button>
-        <button onClick={() => setView("goals")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.surface, color: C.muted, border: `1px solid ${C.border}` }}>
-          <Target size={15} /> Metas
-        </button>
-      </div>
+      <ReportTabs view={view} setView={setView} />
       <HeroPanel label={heroLabel} value={totalPeriod} />
 
       {isAdmin && (
@@ -2800,6 +2882,34 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
           })}
         </div>
       )}
+
+      <Panel>
+        <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Comparado ao mês anterior</h4>
+        {comparison.length === 0 ? (
+          <p className="text-sm" style={{ color: C.muted }}>Sem dados suficientes para comparar.</p>
+        ) : (
+          <div className="space-y-2.5">
+            {comparison.map((d) => {
+              const diff = d.previous > 0 ? ((d.current - d.previous) / d.previous) * 100 : (d.current > 0 ? 100 : 0);
+              const up = diff > 0;
+              return (
+                <div key={d.category} className="flex items-center justify-between text-sm">
+                  <span style={{ color: C.text }}>{d.category}</span>
+                  <div className="flex items-center gap-2">
+                    <Amount value={d.current} size="text-xs" />
+                    {d.previous > 0 && (
+                      <span className="flex items-center gap-0.5 text-[11px]" style={{ color: up ? C.rose : C.green }}>
+                        {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                        {Math.abs(diff).toFixed(0)}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Panel>
 
       <Panel>
         <div className="flex items-center justify-between mb-3">
@@ -2870,34 +2980,6 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
                 </div>
               ))}
             </div>
-          </div>
-        )}
-      </Panel>
-
-      <Panel>
-        <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Comparado ao mês anterior</h4>
-        {comparison.length === 0 ? (
-          <p className="text-sm" style={{ color: C.muted }}>Sem dados suficientes para comparar.</p>
-        ) : (
-          <div className="space-y-2.5">
-            {comparison.map((d) => {
-              const diff = d.previous > 0 ? ((d.current - d.previous) / d.previous) * 100 : (d.current > 0 ? 100 : 0);
-              const up = diff > 0;
-              return (
-                <div key={d.category} className="flex items-center justify-between text-sm">
-                  <span style={{ color: C.text }}>{d.category}</span>
-                  <div className="flex items-center gap-2">
-                    <Amount value={d.current} size="text-xs" />
-                    {d.previous > 0 && (
-                      <span className="flex items-center gap-0.5 text-[11px]" style={{ color: up ? C.rose : C.green }}>
-                        {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-                        {Math.abs(diff).toFixed(0)}%
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
           </div>
         )}
       </Panel>
@@ -3036,8 +3118,7 @@ function usePersistentTab(key, defaultValue) {
 
 /* ---------------------------------- DASHBOARDS ---------------------------------- */
 
-function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, data, refresh }) {
-  const [showSearch, setShowSearch] = useState(false);
+function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, data, refresh, showSearch, setShowSearch }) {
   const [uploading, setUploading] = useState(false);
   const handleAvatarUpload = async (file) => {
     setUploading(true);
@@ -3057,8 +3138,9 @@ function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, d
         <span className="font-bold text-sm truncate" style={{ fontFamily: "'Manrope', sans-serif", color: C.text }}>Controle Financeiro</span>
       </div>
 
-      <button onClick={() => setShowSearch(true)} className="flex items-center gap-2.5 px-3 py-2.5 mb-3 rounded-xl text-sm" style={{ background: C.bgSoft, border: `1px solid ${C.border}`, color: C.muted }}>
-        <Search size={15} /> Buscar em tudo...
+      <button onClick={() => setShowSearch(true)} className="flex items-center justify-between gap-2.5 px-3 py-2.5 mb-3 rounded-xl text-sm" style={{ background: C.bgSoft, border: `1px solid ${C.border}`, color: C.muted }}>
+        <span className="flex items-center gap-2.5"><Search size={15} /> Buscar em tudo...</span>
+        <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ border: `1px solid ${C.border}` }}>/</span>
       </button>
       {showSearch && <GlobalSearchModal profile={profile} data={data} onClose={() => setShowSearch(false)} />}
 
@@ -3083,37 +3165,68 @@ function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, d
           <LogOut size={14} color={C.muted} />
         </button>
       </div>
-      <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+      <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-3" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
         <Avatar profile={profile} size={32} editable onUpload={handleAvatarUpload} uploading={uploading} />
         <div className="min-w-0">
           <div className="text-xs font-semibold truncate" style={{ color: C.text }}>{firstName(profile.name)}</div>
           {profile.role === "admin" && <div className="text-[10.5px]" style={{ color: C.muted }}>admin</div>}
         </div>
       </div>
+      <div className="flex items-center gap-x-3 gap-y-1 flex-wrap px-1 text-[10px]" style={{ color: C.muted }}>
+        <span><b style={{ color: C.text }}>N</b> gasto</span>
+        <span><b style={{ color: C.text }}>R</b> receita</span>
+        <span><b style={{ color: C.text }}>/</b> buscar</span>
+      </div>
     </div>
   );
+}
+
+function useKeyboardShortcuts({ onNewExpense, onNewIncome, onSearch }) {
+  useEffect(() => {
+    const handler = (e) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || document.activeElement?.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "n" || e.key === "N") { e.preventDefault(); onNewExpense(); }
+      else if (e.key === "r" || e.key === "R") { e.preventDefault(); onNewIncome(); }
+      else if (e.key === "/") { e.preventDefault(); onSearch(); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onNewExpense, onNewIncome, onSearch]);
 }
 
 function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = usePersistentTab("tab-member", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const myCards = accessibleCards(data, profile.id);
   useBillAlerts(myCards, data.expenses);
   useBudgetAlerts(profile, data);
+  useKeyboardShortcuts({
+    onNewExpense: () => setShowQuickAdd(true),
+    onNewIncome: () => setShowQuickIncome(true),
+    onSearch: () => setShowSearch(true),
+  });
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(myCards, data.expenses) },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
     { id: "investments", label: "Invest.", fullLabel: "Investimentos", icon: <PiggyBank size={18} /> },
   ];
-  const handleQuickSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
+  const handleQuickSave = async (expArr) => {
+    const arr = Array.isArray(expArr) ? expArr : [expArr];
+    for (const e of arr) await saveExpense(e);
+    await refresh();
+    await logActivity(profile.id, "criou", `Lançou o gasto "${arr[0]?.description || "gasto"}"`);
+  };
   const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
   return (
     <div className="lg:flex lg:items-start">
-      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} />
+      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} />
       <div className="lg:flex-1 lg:min-w-0">
-        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} /></div>
+        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} /></div>
         {tab === "overview" && <MemberOverview profile={profile} data={data} refresh={refresh} />}
         {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
         {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
@@ -3132,21 +3245,32 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = usePersistentTab("tab-admin", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   useBillAlerts(data.cards, data.expenses);
   useBudgetAlerts(profile, data);
+  useKeyboardShortcuts({
+    onNewExpense: () => setShowQuickAdd(true),
+    onNewIncome: () => setShowQuickIncome(true),
+    onSearch: () => setShowSearch(true),
+  });
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(data.cards, data.expenses) },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
     { id: "investments", label: "Invest.", fullLabel: "Investimentos", icon: <PiggyBank size={18} /> },
   ];
-  const handleQuickSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
+  const handleQuickSave = async (expArr) => {
+    const arr = Array.isArray(expArr) ? expArr : [expArr];
+    for (const e of arr) await saveExpense(e);
+    await refresh();
+    await logActivity(profile.id, "criou", `Lançou o gasto "${arr[0]?.description || "gasto"}"`);
+  };
   const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
   return (
     <div className="lg:flex lg:items-start">
-      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} />
+      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} />
       <div className="lg:flex-1 lg:min-w-0">
-        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} /></div>
+        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} /></div>
         {tab === "overview" && <AdminOverview profile={profile} data={data} refresh={refresh} />}
         {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
         {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
