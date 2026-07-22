@@ -380,8 +380,8 @@ function PeriodFilter({ value, onChange, customRange, onCustomChange }) {
   const presets = ["month", "last_month", "3m", "6m", "year", "custom"];
   return (
     <>
-      <button onClick={() => setOpen(true)} className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all"
-        style={{ background: C.surface, color: C.text, border: `1px solid ${C.border}` }}>
+      <button onClick={() => setOpen(true)} className="shrink-0 flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all"
+        style={{ background: C.bgSoft, color: C.text, border: `1px solid ${C.border}` }}>
         <Clock size={13} color={C.gold} /> {periodPresetLabel(value)} <ChevronRight size={13} color={C.muted} />
       </button>
       {open && (
@@ -1863,9 +1863,9 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
           style={{ background: viewMode === "faturas" ? C.gold : C.surface, color: viewMode === "faturas" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "faturas" ? C.gold : C.border}` }}>
           <ListChecks size={15} /> Faturas
         </button>
-        <button onClick={() => setViewMode("lista")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
+        <button onClick={() => setViewMode(viewMode === "lista" ? "faturas" : "lista")} aria-label="Buscar tudo" className="shrink-0 flex items-center justify-center w-11 py-2.5 rounded-xl transition-all"
           style={{ background: viewMode === "lista" ? C.gold : C.surface, color: viewMode === "lista" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "lista" ? C.gold : C.border}` }}>
-          <Search size={15} /> Buscar tudo
+          <Search size={15} />
         </button>
         {isAdmin && (
           <button onClick={() => setViewMode("cards")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
@@ -2381,7 +2381,6 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
           <Target size={15} /> Metas
         </button>
       </div>
-      <PeriodFilter value={period} onChange={setPeriod} customRange={customRange} onCustomChange={setCustomRange} />
       <HeroPanel label={heroLabel} value={totalPeriod} />
 
       {isAdmin && (
