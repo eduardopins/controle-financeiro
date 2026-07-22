@@ -6,7 +6,7 @@
     </linearGradient>
   </defs>
   <rect width="512" height="512" rx="110" fill="url(#g)"/>
-  <rect x="120" y="180" width="272" height="180" rx="24" fill="none" stroke="#D8B885" stroke-width="14"/>
-  <rect x="120" y="180" width="272" height="54" rx="10" fill="#D8B885"/>
-  <circle cx="330" cy="300" r="26" fill="#D8B885"/>
+  <rect x="120" y="180" width="272" height="180" rx="24" fill="none" stroke="#FFFFFF" stroke-width="14"/>
+  <rect x="120" y="180" width="272" height="54" rx="10" fill="#FFFFFF"/>
+  <circle cx="330" cy="300" r="26" fill="#FFFFFF"/>
 </svg>
