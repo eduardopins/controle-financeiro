@@ -7,7 +7,7 @@ import {
   CreditCard, Plus, Pencil, Trash2, LogOut, LayoutGrid, Wallet, PieChart as PieIcon,
   ListChecks, X, Check, Lock, ChevronRight, Download, AlertTriangle,
   Repeat, Target, Clock, Sun, Moon, Search, Paperclip, TrendingUp, TrendingDown,
-  DollarSign, CheckSquare, Square, Zap, Share2, Percent, PiggyBank, ArrowDownCircle, ArrowUpCircle,
+  DollarSign, CheckSquare, Square, Zap, Share2, Percent, PiggyBank, ArrowDownCircle, ArrowUpCircle, Calendar,
 } from "lucide-react";
 
 /* ---------------------------------- tokens ---------------------------------- */
@@ -48,6 +48,8 @@ const CAT_COLORS = {
   "Educação": "#06B6D4", "Outros": "#6B7280",
 };
 const MONTHS_PT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const MONTHS_FULL_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const WEEKDAYS_PT = ["D", "S", "T", "Q", "Q", "S", "S"];
 
 /* ---------------------------------- utils ---------------------------------- */
 
@@ -328,6 +330,105 @@ function Modal({ title, onClose, children }) {
     </div>
   );
 }
+function formatDateBR(dateStr) {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-");
+  return `${d}/${m}/${y}`;
+}
+function daysInMonth(year, month) { return new Date(year, month + 1, 0).getDate(); }
+function pad2(n) { return String(n).padStart(2, "0"); }
+
+function DateInput({ value, onChange, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const base = value ? new Date(value + "T00:00:00") : new Date();
+  const [viewYear, setViewYear] = useState(base.getFullYear());
+  const [viewMonth, setViewMonth] = useState(base.getMonth());
+
+  const openPicker = () => {
+    const d = value ? new Date(value + "T00:00:00") : new Date();
+    setViewYear(d.getFullYear());
+    setViewMonth(d.getMonth());
+    setOpen(true);
+  };
+  const changeMonth = (delta) => {
+    let m = viewMonth + delta, y = viewYear;
+    if (m < 0) { m = 11; y -= 1; }
+    if (m > 11) { m = 0; y += 1; }
+    setViewMonth(m); setViewYear(y);
+  };
+  const firstWeekday = new Date(viewYear, viewMonth, 1).getDay();
+  const totalDays = daysInMonth(viewYear, viewMonth);
+  const prevMonthDays = daysInMonth(viewYear, viewMonth - 1);
+  const cells = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push({ day: prevMonthDays - firstWeekday + 1 + i, muted: true });
+  for (let d = 1; d <= totalDays; d++) cells.push({ day: d, muted: false });
+  let nextDay = 1;
+  while (cells.length % 7 !== 0) cells.push({ day: nextDay++, muted: true });
+
+  const keyFor = (day) => `${viewYear}-${pad2(viewMonth + 1)}-${pad2(day)}`;
+  const selectDay = (day) => { onChange(keyFor(day)); setOpen(false); };
+  const today = new Date();
+  const isToday = (day) => today.getFullYear() === viewYear && today.getMonth() === viewMonth && today.getDate() === day;
+
+  return (
+    <>
+      <button type="button" onClick={openPicker} className={`${inputClass} flex items-center justify-between`} style={inputStyle}>
+        <span style={{ color: value ? C.text : C.muted }}>{value ? formatDateBR(value) : (placeholder || "Selecionar data")}</span>
+        <Calendar size={15} color={C.muted} />
+      </button>
+      {open && (
+        <Modal title="Selecionar data" onClose={() => setOpen(false)}>
+          <div className="flex items-center justify-between mb-3">
+            <button type="button" onClick={() => changeMonth(-1)}><ChevronRight size={16} color={C.muted} style={{ transform: "rotate(180deg)" }} /></button>
+            <span className="text-sm font-medium capitalize" style={{ color: C.text }}>{MONTHS_FULL_PT[viewMonth]} de {viewYear}</span>
+            <button type="button" onClick={() => changeMonth(1)}><ChevronRight size={16} color={C.muted} /></button>
+          </div>
+          <div className="grid grid-cols-7 gap-1 mb-1">
+            {WEEKDAYS_PT.map((w, i) => <div key={i} className="text-center text-[10px]" style={{ color: C.muted }}>{w}</div>)}
+          </div>
+          <div className="grid grid-cols-7 gap-1 mb-4">
+            {cells.map((c, i) => {
+              const selected = !c.muted && value === keyFor(c.day);
+              return (
+                <button key={i} type="button" disabled={c.muted} onClick={() => selectDay(c.day)}
+                  className="aspect-square rounded-lg text-xs flex items-center justify-center transition-all"
+                  style={{
+                    background: selected ? C.gold : "transparent",
+                    color: c.muted ? C.border : selected ? "#1A1607" : (isToday(c.day) ? C.gold : C.text),
+                    border: isToday(c.day) && !selected ? `1px solid ${C.gold}` : "1px solid transparent",
+                    cursor: c.muted ? "default" : "pointer",
+                  }}>
+                  {c.day}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex justify-between text-xs">
+            <button type="button" onClick={() => { onChange(""); setOpen(false); }} style={{ color: C.muted }}>Limpar</button>
+            <button type="button" onClick={() => { const t = new Date(); onChange(`${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`); setOpen(false); }} style={{ color: C.gold }}>Hoje</button>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+function FileInput({ onFileSelected, accept, label }) {
+  const inputRef = useRef(null);
+  const [fileName, setFileName] = useState("");
+  return (
+    <div className="flex items-center gap-2.5 flex-wrap">
+      <button type="button" onClick={() => inputRef.current?.click()} className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium transition-all"
+        style={{ background: C.bgSoft, color: C.text, border: `1px solid ${C.border}` }}>
+        <Paperclip size={13} /> {label || "Escolher arquivo"}
+      </button>
+      <span className="text-xs truncate" style={{ color: fileName ? C.text : C.muted, maxWidth: 160 }}>{fileName || "Nenhum arquivo escolhido"}</span>
+      <input ref={inputRef} type="file" accept={accept} className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0] || null; setFileName(f?.name || ""); onFileSelected(f); }} />
+    </div>
+  );
+}
+
 function Amount({ value, size = "text-lg", tone }) {
   const color = tone === "rose" ? C.rose : tone === "green" ? C.green : C.text;
   return <span className={size} style={{ fontFamily: "'IBM Plex Mono', monospace", color, fontVariantNumeric: "tabular-nums" }}>{brl(value)}</span>;
@@ -789,8 +890,7 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
     <Modal title={initial ? "Editar gasto" : "Novo gasto"} onClose={onClose}>
       {!initial && (
         <Field label="Importar de foto ou print (opcional)">
-          <input type="file" accept="image/*" onChange={(e) => handleReceiptChange(e.target.files?.[0] || null)}
-            className="text-xs" style={{ color: C.muted }} />
+          <FileInput accept="image/*" label="Escolher foto" onFileSelected={handleReceiptChange} />
           {importing && <p className="text-xs mt-1.5 flex items-center gap-1.5" style={{ color: C.muted }}><Clock size={11} /> Lendo comprovante...</p>}
           {importNote && !importing && <p className="text-xs mt-1.5" style={{ color: C.gold }}>{importNote}</p>}
         </Field>
@@ -832,7 +932,7 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
       )}
 
       <p className="text-[10px] font-semibold tracking-wide uppercase mb-2" style={{ color: C.gold }}>Quando</p>
-      <Field label="Data da compra"><TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+      <Field label="Data da compra"><DateInput value={date} onChange={setDate} /></Field>
 
       {!isRefund && (
         <>
@@ -904,8 +1004,7 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
               <button onClick={() => setExistingReceipt(null)}><X size={13} color={C.rose} /></button>
             </div>
           )}
-          <input type="file" accept="image/*,application/pdf" onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
-            className="text-xs" style={{ color: C.muted }} />
+          <FileInput accept="image/*,application/pdf" onFileSelected={setReceiptFile} />
         </Field>
       )}
       <Btn full onClick={submit} disabled={saving || importing}>{saving ? "Salvando..." : "Salvar gasto"}</Btn>
@@ -1153,7 +1252,7 @@ function IncomeForm({ profileId, onSave, onClose, initial }) {
     <Modal title={initial ? "Editar receita" : "Nova receita"} onClose={onClose}>
       <Field label="Descrição"><TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: Salário" /></Field>
       <Field label="Valor (R$)"><CurrencyInput value={amount} onChange={setAmount} /></Field>
-      <Field label="Data"><TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+      <Field label="Data"><DateInput value={date} onChange={setDate} /></Field>
       <label className="flex items-center gap-2.5 text-sm mb-3.5" style={{ color: C.text }}>
         <Switch checked={isRecurring} onChange={setIsRecurring} />
         <Repeat size={14} color={C.muted} /> Receita recorrente (todo mês)
@@ -1334,7 +1433,7 @@ function InvestmentForm({ allProfiles, viewerProfileId, onSave, onClose, initial
       <p className="text-[11px] -mt-2.5 mb-3.5" style={{ color: C.muted }}>O CDI atual é buscado automaticamente e vale pra todas as caixinhas — não precisa informar aqui.</p>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Meta (R$, opcional)"><CurrencyInput value={targetAmount} onChange={setTargetAmount} /></Field>
-        <Field label="Até quando (opcional)"><TextInput type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} /></Field>
+        <Field label="Até quando (opcional)"><DateInput value={targetDate} onChange={setTargetDate} /></Field>
       </div>
       {shareCandidates.length > 0 && (
         <Field label="Compartilhar com outra pessoa (opcional)">
@@ -1391,7 +1490,7 @@ function InvestmentTransactionForm({ investmentId, profileId, defaultType, onSav
         </button>
       </div>
       <Field label="Valor (R$)"><CurrencyInput value={amount} onChange={setAmount} /></Field>
-      <Field label="Data"><TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+      <Field label="Data"><DateInput value={date} onChange={setDate} /></Field>
       <Field label="Descrição (opcional)"><TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: Aporte mensal" /></Field>
       {type === "deposit" && (
         <label className="flex items-center gap-2 mb-3.5 text-xs" style={{ color: C.text }}>
@@ -1400,7 +1499,7 @@ function InvestmentTransactionForm({ investmentId, profileId, defaultType, onSav
         </label>
       )}
       <Field label="Comprovante (opcional)">
-        <input type="file" accept="image/*,application/pdf" onChange={(e) => setReceiptFile(e.target.files?.[0] || null)} className="text-xs" style={{ color: C.muted }} />
+        <FileInput accept="image/*,application/pdf" onFileSelected={setReceiptFile} />
       </Field>
       {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
       <Btn full onClick={submit} disabled={saving}>{saving ? "Salvando..." : "Confirmar"}</Btn>
@@ -1827,7 +1926,7 @@ function ImportCSVModal({ cards, userId, onImport, onClose }) {
       {!rows ? (
         <>
           <p className="text-xs mb-3" style={{ color: C.muted }}>Envie o arquivo CSV do extrato (data, descrição e valor). Depois você confere cada lançamento antes de importar de verdade.</p>
-          <input type="file" accept=".csv,text/csv" onChange={(e) => handleFile(e.target.files?.[0])} className="text-xs" style={{ color: C.muted }} />
+          <FileInput accept=".csv,text/csv" label="Escolher CSV" onFileSelected={handleFile} />
         </>
       ) : rows.length === 0 ? (
         <p className="text-sm" style={{ color: C.muted }}>Não consegui reconhecer nenhum lançamento nesse arquivo.</p>
@@ -2257,6 +2356,8 @@ function AdminOverview({ profile, data, refresh }) {
   const byPerson = data.profiles.map((u) => ({ ...u, total: data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0) }));
   const adminIncomeMonth = (data.incomes || []).filter((i) => i.profile_id === profile.id && isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
   const adminExpenseMonth = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
+  const scopedIncome = (data.incomes || []).filter((i) => isIncomeDueIn(i, now) && (!scopeActive || scopeIds.includes(i.profile_id))).reduce((s, i) => s + incomeMonthlyValue(i), 0);
+  const scopedSaldo = scopedIncome - totalMonth;
 
   const toggleScope = (id) => setScopeIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
 
@@ -2270,8 +2371,7 @@ function AdminOverview({ profile, data, refresh }) {
     const categories = allCategoryNames(scopedExpenses)
       .map((cat) => ({ name: cat, value: scopedExpenses.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0), color: getCategoryColor(cat) }))
       .filter((c) => c.value > 0).sort((a, b) => b.value - a.value);
-    const scopedIncome = (data.incomes || []).filter((i) => isIncomeDueIn(i, now) && (!scopeActive || scopeIds.includes(i.profile_id))).reduce((s, i) => s + incomeMonthlyValue(i), 0);
-    shareSummaryImage({ heading: buildHeading(scopeIds), monthLabelStr: monthLabel(now), total: totalMonth, saldo: scopedIncome - totalMonth, categories });
+    shareSummaryImage({ heading: buildHeading(scopeIds), monthLabelStr: monthLabel(now), total: totalMonth, saldo: scopedSaldo, categories });
   };
 
   return (
@@ -2284,6 +2384,18 @@ function AdminOverview({ profile, data, refresh }) {
       </div>
       <div className="space-y-4">
         <HeroPanel label={scopeActive ? buildHeading(scopeIds) : "Total do mês"} value={totalMonth} />
+        {scopeActive && (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}`, boxShadow: C.shadow }}>
+              <span className="text-[11px]" style={{ color: C.muted }}>receita</span>
+              <div className="mt-1"><Amount value={scopedIncome} size="text-lg" tone="green" /></div>
+            </div>
+            <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${scopedSaldo < 0 ? "rgba(168,80,79,0.4)" : C.border}`, boxShadow: C.shadow }}>
+              <span className="text-[11px]" style={{ color: C.muted }}>saldo</span>
+              <div className="mt-1"><Amount value={scopedSaldo} size="text-lg" tone={scopedSaldo < 0 ? "rose" : "green"} /></div>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {byPerson.map((p) => {
             const active = scopeIds.includes(p.id);
