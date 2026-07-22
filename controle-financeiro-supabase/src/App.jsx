@@ -2197,7 +2197,6 @@ function ReportsScreen({ profile, data, isAdmin }) {
   const [period, setPeriod] = useState("month");
   const [customRange, setCustomRange] = useState({ start: "", end: "" });
   const [selectedIds, setSelectedIds] = useState([]);
-  const [catHovering, setCatHovering] = useState(false);
 
   const scopeProfiles = isAdmin
     ? (selectedIds.length === 0 ? data.profiles : data.profiles.filter((p) => selectedIds.includes(p.id)))
@@ -2249,19 +2248,17 @@ function ReportsScreen({ profile, data, isAdmin }) {
           <div className="relative">
             <ResponsiveContainer width="100%" height={230}>
               <PieChart>
-                <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={3} cornerRadius={6}
-                  onMouseEnter={() => setCatHovering(true)} onMouseLeave={() => setCatHovering(false)}>
+                <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={3} cornerRadius={6}>
                   {byCategory.map((d, i) => <Cell key={i} fill={getCategoryColor(d.name)} stroke="none" />)}
                 </Pie>
-                <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} />
+                <Tooltip formatter={(v) => brl(v)} offset={40} allowEscapeViewBox={{ x: true, y: true }}
+                  contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} />
               </PieChart>
             </ResponsiveContainer>
-            {!catHovering && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ top: -8 }}>
-                <span className="text-[10px]" style={{ color: C.muted }}>total</span>
-                <span className="text-lg font-extrabold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{brl(totalPeriod)}</span>
-              </div>
-            )}
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ top: -8 }}>
+              <span className="text-[10px]" style={{ color: C.muted }}>total</span>
+              <span className="text-lg font-extrabold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{brl(totalPeriod)}</span>
+            </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1.5 justify-center mt-2">
               {byCategory.map((d) => (
                 <div key={d.name} className="flex items-center gap-1.5 text-[11px]" style={{ color: C.muted }}>
