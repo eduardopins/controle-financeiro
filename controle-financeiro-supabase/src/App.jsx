@@ -490,6 +490,7 @@ async function saveExpense(exp) {
     total_amount: exp.totalAmount, purchase_date: exp.date, first_month: exp.firstMonth,
     installments: exp.installments, is_recurring: exp.isRecurring, is_refund: exp.isRefund ?? false, receipt_url: exp.receiptUrl ?? null,
   };
+  if (isNew) payload.created_by = exp.createdBy || exp.userId;
   const { error } = isNew
     ? await supabase.from("expenses").insert(payload)
     : await supabase.from("expenses").update(payload).eq("id", exp.id);
@@ -622,7 +623,7 @@ async function extractReceiptData(file) {
 
 /* ---------------------------------- EXPENSE FORM ---------------------------------- */
 
-function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, customCategories, onAddCategory, startWithNoCard }) {
+function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, customCategories, onAddCategory, startWithNoCard, creatorId, canRefund }) {
   const [selectedUserId, setSelectedUserId] = useState(initial?.profile_id || userId);
   const [cardId, setCardId] = useState(() => {
     if (initial) return initial.card_id || "";
@@ -696,7 +697,7 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
       if (receiptFile) receiptUrl = await uploadReceipt(receiptFile, selectedUserId);
       const base = {
         cardId, category, description: description.trim(), date, firstMonth: monthKeyFromDate(date),
-        installments: isRecurring ? 1 : Math.max(1, parseInt(installments) || 1), isRecurring, isRefund,
+        installments: isRecurring ? 1 : Math.max(1, parseInt(installments) || 1), isRecurring, isRefund, createdBy: creatorId || userId,
       };
       let toSave;
       if (splitEnabled && splitWith && !isRefund) {
@@ -765,10 +766,12 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
         <Field label="Valor (R$)"><CurrencyInput value={totalAmount} onChange={setTotalAmount} /></Field>
       </div>
 
-      <label className="flex items-center gap-2.5 text-sm mb-3.5" style={{ color: C.text }}>
-        <Switch checked={isRefund} onChange={setIsRefund} />
-        <TrendingUp size={14} color={C.green} /> Isto é um reembolso (valor volta pra fatura)
-      </label>
+      {canRefund && (
+        <label className="flex items-center gap-2.5 text-sm mb-3.5" style={{ color: C.text }}>
+          <Switch checked={isRefund} onChange={setIsRefund} />
+          <TrendingUp size={14} color={C.green} /> Isto é um reembolso (valor volta pra fatura)
+        </label>
+      )}
 
       <p className="text-[10px] font-semibold tracking-wide uppercase mb-2" style={{ color: C.gold }}>Quando</p>
       <Field label="Data da compra"><TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
@@ -975,7 +978,7 @@ function formatShortDate(dateStr) {
 
 /* ---------------------------------- EXPENSE ROW ---------------------------------- */
 
-function ExpenseRow({ exp, cardName, personName, onEdit, onDelete, showPerson, selectable, selected, onToggleSelect }) {
+function ExpenseRow({ exp, cardName, personName, creatorName, onEdit, onDelete, showPerson, selectable, selected, onToggleSelect }) {
   return (
     <div className="flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}` }}>
       {selectable && (
@@ -995,6 +998,7 @@ function ExpenseRow({ exp, cardName, personName, onEdit, onDelete, showPerson, s
           {!exp.is_recurring && exp.installments > 1 && ` · ${exp.installments}x`}
           {exp.is_recurring && " · recorrente"}
           {exp.is_refund && " · reembolso"}
+          {exp.created_by && exp.created_by !== exp.profile_id && ` · lançado por ${creatorName}`}
         </div>
       </div>
       <Amount value={monthlyValue(exp)} size="text-sm" tone={exp.is_refund ? "green" : undefined} />
@@ -1111,7 +1115,7 @@ function IncomeSection({ profile, data, refresh }) {
       {showForm && <IncomeForm profileId={profile.id} onSave={handleSave} onClose={() => setShowForm(false)} />}
       {showExpenseForm && (
         <ExpenseForm cards={myCards} userId={profile.id} onSave={handleSaveExpense} onClose={() => setShowExpenseForm(false)}
-          allProfiles={data.profiles} customCategories={data.customCategories} startWithNoCard
+          allProfiles={data.profiles} customCategories={data.customCategories} startWithNoCard creatorId={profile.id} canRefund={profile.role === "admin"}
           onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />
       )}
     </Panel>
@@ -1433,7 +1437,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
     downloadJSON(payload, `backup-${currentMonthKey()}.json`);
   };
 
-  const invoiceScopedExpenses = data.expenses.filter((e) => filterPerson === "all" || e.profile_id === filterPerson);
+  const invoiceScopedExpenses = baseExpenses.filter((e) => !isAdmin || filterPerson === "all" || e.profile_id === filterPerson);
   const invoiceCards = filterCard === "all" ? myCards : myCards.filter((c) => c.id === filterCard);
   const invoiceMonthsList = invoiceMonths(invoiceScopedExpenses, invoiceCards.map((c) => c.id));
   const invoiceLineItems = invoiceScopedExpenses
@@ -1535,7 +1539,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
                 <EmptyState icon={<ListChecks size={28} />} text="Nenhum gasto nesta fatura." />
               ) : (
                 invoiceLineItems.map((exp) => (
-                  <ExpenseRow key={exp.id} exp={exp} cardName={cardName(exp.card_id)} personName={personName(exp.profile_id)} showPerson={isAdmin}
+                  <ExpenseRow key={exp.id} exp={exp} cardName={cardName(exp.card_id)} personName={personName(exp.profile_id)} creatorName={exp.created_by ? personName(exp.created_by) : ""} showPerson={isAdmin}
                     onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} />
                 ))
               )}
@@ -1591,7 +1595,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
               <EmptyState icon={<ListChecks size={28} />} text="Nenhum gasto encontrado." />
             ) : (
               filtered.map((exp) => (
-                <ExpenseRow key={exp.id} exp={exp} cardName={cardName(exp.card_id)} personName={personName(exp.profile_id)} showPerson={isAdmin}
+                <ExpenseRow key={exp.id} exp={exp} cardName={cardName(exp.card_id)} personName={personName(exp.profile_id)} creatorName={exp.created_by ? personName(exp.created_by) : ""} showPerson={isAdmin}
                   onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete}
                   selectable={isAdmin && selectMode} selected={selected.includes(exp.id)} onToggleSelect={toggleSelect} />
               ))
@@ -1603,7 +1607,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
       {showForm && (
         <ExpenseForm cards={myCards} userId={editing?.profile_id || profile.id} initial={editing}
           onSave={handleSave} onClose={() => setShowForm(false)}
-          allProfiles={data.profiles}
+          allProfiles={data.profiles} creatorId={profile.id} canRefund={isAdmin}
           customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />
       )}
       {showImportCSV && (
@@ -2120,7 +2124,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
       {tab === "reports" && <ReportsScreen profile={profile} data={data} isAdmin={false} />}
       {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
       <FloatingAddButton onClick={() => setShowQuickAdd(true)} />
-      {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles}
+      {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id}
         customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
       <BottomNav tabs={tabs} tab={tab} setTab={setTab} />
     </>
@@ -2148,7 +2152,7 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
       {tab === "reports" && <ReportsScreen profile={profile} data={data} isAdmin />}
       {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
       <FloatingAddButton onClick={() => setShowQuickAdd(true)} />
-      {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles}
+      {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id} canRefund
         customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
       <BottomNav tabs={tabs} tab={tab} setTab={setTab} />
     </>
