@@ -488,7 +488,7 @@ async function saveExpense(exp) {
   const payload = {
     card_id: exp.cardId || null, profile_id: exp.userId, category: exp.category, description: exp.description,
     total_amount: exp.totalAmount, purchase_date: exp.date, first_month: exp.firstMonth,
-    installments: exp.installments, is_recurring: exp.isRecurring, receipt_url: exp.receiptUrl ?? null,
+    installments: exp.installments, is_recurring: exp.isRecurring, is_refund: exp.isRefund ?? false, receipt_url: exp.receiptUrl ?? null,
   };
   const { error } = isNew
     ? await supabase.from("expenses").insert(payload)
@@ -632,10 +632,11 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [description, setDescription] = useState(initial?.description || "");
-  const [totalAmount, setTotalAmount] = useState(initial?.total_amount ?? "");
+  const [totalAmount, setTotalAmount] = useState(initial?.total_amount != null ? String(Math.abs(initial.total_amount)) : "");
   const [date, setDate] = useState(initial?.purchase_date || new Date().toISOString().slice(0, 10));
   const [installments, setInstallments] = useState(initial?.installments || 1);
   const [isRecurring, setIsRecurring] = useState(initial?.is_recurring || false);
+  const [isRefund, setIsRefund] = useState(initial?.is_refund || false);
   const [receiptFile, setReceiptFile] = useState(null);
   const [existingReceipt, setExistingReceipt] = useState(initial?.receipt_url || null);
   const [saving, setSaving] = useState(false);
@@ -695,10 +696,10 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
       if (receiptFile) receiptUrl = await uploadReceipt(receiptFile, selectedUserId);
       const base = {
         cardId, category, description: description.trim(), date, firstMonth: monthKeyFromDate(date),
-        installments: isRecurring ? 1 : Math.max(1, parseInt(installments) || 1), isRecurring,
+        installments: isRecurring ? 1 : Math.max(1, parseInt(installments) || 1), isRecurring, isRefund,
       };
       let toSave;
-      if (splitEnabled && splitWith) {
+      if (splitEnabled && splitWith && !isRefund) {
         const amountAPrecise = Math.round(amountA * 1000) / 1000;
         const amountBPrecise = Math.round((totalNum - amountAPrecise) * 1000) / 1000;
         toSave = [
@@ -706,7 +707,7 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
           { ...base, userId: splitWith, totalAmount: amountBPrecise, receiptUrl: null },
         ];
       } else {
-        toSave = [{ ...base, id: initial?.id, userId: selectedUserId, totalAmount: totalNum, receiptUrl }];
+        toSave = [{ ...base, id: initial?.id, userId: selectedUserId, totalAmount: isRefund ? -Math.abs(totalNum) : totalNum, receiptUrl }];
       }
       await onSave(toSave);
       onClose();
@@ -764,22 +765,31 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
         <Field label="Valor (R$)"><CurrencyInput value={totalAmount} onChange={setTotalAmount} /></Field>
       </div>
 
+      <label className="flex items-center gap-2.5 text-sm mb-3.5" style={{ color: C.text }}>
+        <Switch checked={isRefund} onChange={setIsRefund} />
+        <TrendingUp size={14} color={C.green} /> Isto é um reembolso (valor volta pra fatura)
+      </label>
+
       <p className="text-[10px] font-semibold tracking-wide uppercase mb-2" style={{ color: C.gold }}>Quando</p>
       <Field label="Data da compra"><TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
 
-      <label className="flex items-center gap-2.5 text-sm mb-3.5" style={{ color: C.text }}>
-        <Switch checked={isRecurring} onChange={setIsRecurring} />
-        <Repeat size={14} color={C.muted} /> Gasto recorrente (todo mês, ex: assinatura)
-      </label>
+      {!isRefund && (
+        <>
+          <label className="flex items-center gap-2.5 text-sm mb-3.5" style={{ color: C.text }}>
+            <Switch checked={isRecurring} onChange={setIsRecurring} />
+            <Repeat size={14} color={C.muted} /> Gasto recorrente (todo mês, ex: assinatura)
+          </label>
 
-      {!isRecurring && (
-        <Field label="Parcelas"><TextInput type="number" min="1" max="48" value={installments} onChange={(e) => setInstallments(e.target.value)} /></Field>
-      )}
-      {!isRecurring && installments > 1 && totalAmount && (
-        <p className="text-xs mb-3" style={{ color: C.muted }}>{installments}x de <b style={{ color: C.goldSoft }}>{brl(totalAmount / installments)}</b></p>
+          {!isRecurring && (
+            <Field label="Parcelas"><TextInput type="number" min="1" max="48" value={installments} onChange={(e) => setInstallments(e.target.value)} /></Field>
+          )}
+          {!isRecurring && installments > 1 && totalAmount && (
+            <p className="text-xs mb-3" style={{ color: C.muted }}>{installments}x de <b style={{ color: C.goldSoft }}>{brl(totalAmount / installments)}</b></p>
+          )}
+        </>
       )}
 
-      {!initial && splitCandidates.length > 0 && (
+      {!initial && !isRefund && splitCandidates.length > 0 && (
         <div className="mb-3.5">
           <p className="text-[10px] font-semibold tracking-wide uppercase mb-2" style={{ color: C.gold }}>Dividir</p>
           <label className="flex items-center gap-2.5 text-sm mb-2" style={{ color: C.text }}>
@@ -977,15 +987,17 @@ function ExpenseRow({ exp, cardName, personName, onEdit, onDelete, showPerson, s
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium truncate flex items-center gap-1.5" style={{ color: C.text }}>
           {exp.description}{exp.is_recurring && <Repeat size={11} color={C.muted} />}
+          {exp.is_refund && <TrendingUp size={11} color={C.green} />}
           {exp.receipt_url && <a href={exp.receipt_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}><Paperclip size={11} color={C.muted} /></a>}
         </div>
         <div className="text-[11px] truncate" style={{ color: C.muted }}>
           {formatShortDate(exp.purchase_date)} · {exp.category} · {cardName}{showPerson ? ` · ${personName}` : ""}
           {!exp.is_recurring && exp.installments > 1 && ` · ${exp.installments}x`}
           {exp.is_recurring && " · recorrente"}
+          {exp.is_refund && " · reembolso"}
         </div>
       </div>
-      <Amount value={monthlyValue(exp)} size="text-sm" />
+      <Amount value={monthlyValue(exp)} size="text-sm" tone={exp.is_refund ? "green" : undefined} />
       <button onClick={() => onEdit(exp)}><Pencil size={14} color={C.muted} /></button>
       <button onClick={() => onDelete(exp)}><Trash2 size={14} color={C.rose} /></button>
     </div>
@@ -1363,6 +1375,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showImportCSV, setShowImportCSV] = useState(false);
   const carouselRef = useRef(null);
+  const monthRefs = useRef({});
   const dragState = useRef({ isDown: false, startX: 0, scrollLeft: 0 });
   const onCarouselMouseDown = (e) => {
     const el = carouselRef.current;
@@ -1420,6 +1433,28 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
     downloadJSON(payload, `backup-${currentMonthKey()}.json`);
   };
 
+  const invoiceScopedExpenses = data.expenses.filter((e) => filterPerson === "all" || e.profile_id === filterPerson);
+  const invoiceCards = filterCard === "all" ? myCards : myCards.filter((c) => c.id === filterCard);
+  const invoiceMonthsList = invoiceMonths(invoiceScopedExpenses, invoiceCards.map((c) => c.id));
+  const invoiceLineItems = invoiceScopedExpenses
+    .filter((e) => invoiceCards.some((c) => c.id === e.card_id) && isDueIn(e, selectedMonth))
+    .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date));
+  const invoiceTotal = invoiceLineItems.reduce((s, e) => s + monthlyValue(e), 0);
+  const invoiceSingleCard = invoiceCards.length === 1 ? invoiceCards[0] : null;
+  const invoiceStatus = invoiceSingleCard ? invoiceStatusInfo(invoiceSingleCard, selectedMonth) : null;
+
+  useEffect(() => {
+    if (viewMode !== "faturas") return;
+    const now = currentMonthKey();
+    const idx = invoiceMonthsList.indexOf(now);
+    if (idx > 0) {
+      const anchorMonth = invoiceMonthsList[idx - 1];
+      const el = monthRefs.current[anchorMonth];
+      if (el && carouselRef.current) carouselRef.current.scrollLeft = el.offsetLeft;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, invoiceMonthsList.join(","), filterCard, filterPerson]);
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
       <ScreenHeader title="Faturas" subtitle={isAdmin ? "Todos os lançamentos" : "Seus lançamentos"} />
@@ -1458,18 +1493,8 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
         </div>
       )}
 
-      {viewMode === "faturas" && (() => {
-        const scopedExpenses = baseExpenses.filter((e) => !isAdmin || filterPerson === "all" || e.profile_id === filterPerson);
-        const invoiceCards = filterCard === "all" ? myCards : myCards.filter((c) => c.id === filterCard);
-        const months = invoiceMonths(scopedExpenses, invoiceCards.map((c) => c.id));
-        const lineItems = scopedExpenses
-          .filter((e) => invoiceCards.some((c) => c.id === e.card_id) && isDueIn(e, selectedMonth))
-          .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date));
-        const total = lineItems.reduce((s, e) => s + monthlyValue(e), 0);
-        const singleCard = invoiceCards.length === 1 ? invoiceCards[0] : null;
-        const statusInfo = singleCard ? invoiceStatusInfo(singleCard, selectedMonth) : null;
-
-        return invoiceCards.length === 0 ? (
+      {viewMode === "faturas" && (
+        invoiceCards.length === 0 ? (
           <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão disponível." /></Panel>
         ) : (
           <>
@@ -1485,12 +1510,12 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
               <div className="w-px h-5 shrink-0" style={{ background: C.border }} />
               <div ref={carouselRef} onMouseDown={onCarouselMouseDown} onMouseMove={onCarouselMouseMove} onMouseUp={stopDrag} onMouseLeave={stopDrag}
                 className="flex gap-1.5 overflow-x-auto flex-1 pb-1 select-none" style={{ scrollbarWidth: "none", cursor: "grab", WebkitOverflowScrolling: "touch" }}>
-                {months.map((mk) => {
+                {invoiceMonthsList.map((mk) => {
                   const active = mk === selectedMonth;
-                  const status = singleCard ? invoiceStatusInfo(singleCard, mk) : null;
+                  const status = invoiceSingleCard ? invoiceStatusInfo(invoiceSingleCard, mk) : null;
                   const tone = status?.tone === "green" ? C.green : status?.tone === "amber" ? C.amber : C.muted;
                   return (
-                    <button key={mk} onClick={() => setSelectedMonth(mk)} className="shrink-0 px-3.5 py-2 rounded-xl text-xs font-medium transition-all capitalize"
+                    <button key={mk} ref={(el) => { monthRefs.current[mk] = el; }} onClick={() => setSelectedMonth(mk)} className="shrink-0 px-3.5 py-2 rounded-xl text-xs font-medium transition-all capitalize"
                       style={{ background: active ? C.gold : "transparent", color: active ? "#1A1607" : tone, border: `1px solid ${active ? C.gold : C.border}` }}>
                       {monthLabel(mk)}
                     </button>
@@ -1501,23 +1526,23 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
             <HeroPanel
               label={`Fatura de ${monthLabel(selectedMonth)}`}
-              value={total}
-              sub={statusInfo ? `${statusInfo.label === "aberta" ? "Fecha" : statusInfo.label === "futura" ? "Fecha" : "Fechou"} dia ${singleCard.closing_day} · vence dia ${singleCard.due_day}` : undefined}
+              value={invoiceTotal}
+              sub={invoiceStatus ? `${invoiceStatus.label === "aberta" ? "Fecha" : invoiceStatus.label === "futura" ? "Fecha" : "Fechou"} dia ${invoiceSingleCard.closing_day} · vence dia ${invoiceSingleCard.due_day}` : undefined}
             />
 
             <Panel>
-              {lineItems.length === 0 ? (
+              {invoiceLineItems.length === 0 ? (
                 <EmptyState icon={<ListChecks size={28} />} text="Nenhum gasto nesta fatura." />
               ) : (
-                lineItems.map((exp) => (
+                invoiceLineItems.map((exp) => (
                   <ExpenseRow key={exp.id} exp={exp} cardName={cardName(exp.card_id)} personName={personName(exp.profile_id)} showPerson={isAdmin}
                     onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} />
                 ))
               )}
             </Panel>
           </>
-        );
-      })()}
+        )
+      )}
 
       {viewMode === "lista" && (
         <>
@@ -1706,64 +1731,57 @@ function MemberOverview({ profile, data, refresh }) {
 
 function AdminOverview({ profile, data, refresh }) {
   const now = currentMonthKey();
+  const [scopeIds, setScopeIds] = useState([]);
+  const scopeActive = scopeIds.length > 0;
   const totalMonth = data.expenses.filter((e) => isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
   const byPerson = data.profiles.map((u) => ({ ...u, total: data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0) }));
   const adminIncomeMonth = (data.incomes || []).filter((i) => i.profile_id === profile.id && isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
   const adminExpenseMonth = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
-  const [showShareMenu, setShowShareMenu] = useState(false);
-  const [shareSelected, setShareSelected] = useState([]);
+
+  const toggleScope = (id) => setScopeIds((prev) => {
+    if (prev.includes(id)) return prev.filter((x) => x !== id);
+    const next = [...prev, id];
+    return next.length > 2 ? next.slice(1) : next;
+  });
 
   const buildHeading = (ids) => {
-    if (ids.length === 0 || ids.length === data.profiles.length) return "Resumo geral";
+    if (ids.length === 0) return "Resumo geral";
     const names = data.profiles.filter((p) => ids.includes(p.id)).map((p) => firstName(p.name));
     if (ids.length === 1) return ids[0] === profile.id ? `Olá, ${names[0]}` : `Resumo de ${names[0]}`;
     return `Resumo de ${names.join(" e ")}`;
   };
-  const shareScope = (scopeIds, heading) => {
-    setShowShareMenu(false);
-    const dueNow = data.expenses.filter((e) => isDueIn(e, now) && (!scopeIds || scopeIds.includes(e.profile_id)));
-    const categories = allCategoryNames(dueNow)
-      .map((cat) => ({ name: cat, value: dueNow.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0), color: getCategoryColor(cat) }))
+  const handleShare = () => {
+    const scopedExpenses = data.expenses.filter((e) => isDueIn(e, now) && (!scopeActive || scopeIds.includes(e.profile_id)));
+    const scopedTotal = scopedExpenses.reduce((s, e) => s + monthlyValue(e), 0);
+    const categories = allCategoryNames(scopedExpenses)
+      .map((cat) => ({ name: cat, value: scopedExpenses.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0), color: getCategoryColor(cat) }))
       .filter((c) => c.value > 0).sort((a, b) => b.value - a.value);
-    const total = dueNow.reduce((s, e) => s + monthlyValue(e), 0);
-    const scopedIncome = (data.incomes || []).filter((i) => isIncomeDueIn(i, now) && (!scopeIds || scopeIds.includes(i.profile_id))).reduce((s, i) => s + incomeMonthlyValue(i), 0);
-    shareSummaryImage({ heading, monthLabelStr: monthLabel(now), total, saldo: scopedIncome - total, categories });
+    const scopedIncome = (data.incomes || []).filter((i) => isIncomeDueIn(i, now) && (!scopeActive || scopeIds.includes(i.profile_id))).reduce((s, i) => s + incomeMonthlyValue(i), 0);
+    shareSummaryImage({ heading: buildHeading(scopeIds), monthLabelStr: monthLabel(now), total: scopedTotal, saldo: scopedIncome - scopedTotal, categories });
   };
-  const toggleShare = (id) => setShareSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
       <div className="flex items-center justify-between">
         <ScreenHeader title="Visão geral" subtitle="Este mês" />
-        <div className="relative shrink-0 mb-4">
-          <button onClick={() => { setShowShareMenu((v) => !v); setShareSelected([]); }} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.border}` }}>
-            <Share2 size={15} color={C.gold} />
-          </button>
-          {showShareMenu && (
-            <div className="absolute right-0 mt-1.5 rounded-xl p-3 z-20" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow, width: 200 }}>
-              <p className="text-[10px] font-semibold tracking-wide uppercase mb-2" style={{ color: C.muted }}>Incluir no resumo</p>
-              <div className="space-y-2 mb-3">
-                {data.profiles.map((p) => (
-                  <label key={p.id} className="flex items-center gap-2 text-xs" style={{ color: C.text }}>
-                    <Switch checked={shareSelected.includes(p.id)} onChange={() => toggleShare(p.id)} />
-                    {p.id === profile.id ? `${firstName(p.name)} (eu)` : firstName(p.name)}
-                  </label>
-                ))}
-              </div>
-              <p className="text-[10px] mb-2" style={{ color: C.muted }}>{shareSelected.length === 0 ? "Ninguém marcado = todos" : `${shareSelected.length} selecionado(s)`}</p>
-              <Btn full onClick={() => shareScope(shareSelected.length ? shareSelected : null, buildHeading(shareSelected))}>Gerar</Btn>
-            </div>
-          )}
-        </div>
+        <button onClick={handleShare} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mb-4" style={{ border: `1px solid ${C.border}` }}>
+          <Share2 size={15} color={C.gold} />
+        </button>
       </div>
       <div className="space-y-4">
         <HeroPanel label="Total do mês" value={totalMonth} />
-        <IncomeSection profile={profile} data={data} refresh={refresh} />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {byPerson.map((p) => (
-            <Panel key={p.id}><span className="text-[11px]" style={{ color: C.muted }}>{firstName(p.name)}</span><div className="mt-1"><Amount value={p.total} size="text-lg" /></div></Panel>
-          ))}
+          {byPerson.map((p) => {
+            const active = scopeIds.includes(p.id);
+            return (
+              <button key={p.id} onClick={() => toggleScope(p.id)} className="text-left rounded-2xl p-5 transition-all" style={{ background: C.surface, border: `1px solid ${active ? C.gold : C.border}`, boxShadow: C.shadow }}>
+                <span className="text-[11px]" style={{ color: active ? C.gold : C.muted }}>{firstName(p.name)}</span>
+                <div className="mt-1"><Amount value={p.total} size="text-lg" /></div>
+              </button>
+            );
+          })}
         </div>
+        <IncomeSection profile={profile} data={data} refresh={refresh} />
         <h4 className="text-xs font-medium mb-1 tracking-wide uppercase" style={{ color: C.muted }}>Cartões</h4>
         <div className={`grid grid-cols-1 ${data.cards.length > 1 ? "sm:grid-cols-2" : ""} gap-3`}>
           {data.cards.map((c) => {
@@ -1953,7 +1971,7 @@ function ReportsScreen({ profile, data, isAdmin }) {
                 <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={3} cornerRadius={6}>
                   {byCategory.map((d, i) => <Cell key={i} fill={getCategoryColor(d.name)} stroke="none" />)}
                 </Pie>
-                <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text }} />
+                <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} />
               </PieChart>
             </ResponsiveContainer>
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ top: -8 }}>
@@ -2006,7 +2024,7 @@ function ReportsScreen({ profile, data, isAdmin }) {
           <BarChart data={evolution} barGap={4}>
             <XAxis dataKey="month" stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} />
             <YAxis stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} tickFormatter={compactNumber} width={38} />
-            <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text }} cursor={{ fill: "rgba(124,58,237,0.06)" }} />
+            <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} cursor={{ fill: "rgba(124,58,237,0.06)" }} />
             {scopeProfiles.map((u, i) => (
               <Bar key={u.id} dataKey={firstName(u.name)} radius={[6, 6, 0, 0]} fill={personColorFor(u.name, i)} maxBarSize={22} />
             ))}
