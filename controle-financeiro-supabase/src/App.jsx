@@ -30,14 +30,14 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--gold); outline-
 .theme-dark {
   --bg: #0A0C18; --bg-soft: #10132A; --surface: #151933; --surface-alt: #1C2140;
   --border: rgba(184,147,90,0.14); --border-strong: rgba(184,147,90,0.34);
-  --gold: #B8935A; --gold-soft: #D8B885; --text: #F4F1E9; --muted: #8B92AC;
+  --gold: #B8935A; --gold-soft: #D8B885; --gold-deep: #4A2E12; --text: #F4F1E9; --muted: #8B92AC;
   --green: #5FA88C; --rose: #C97575; --amber: #CBA05A;
   --shadow: 0 10px 34px rgba(0,0,0,0.38);
 }
 .theme-light {
   --bg: #F7F4EE; --bg-soft: #FFFFFF; --surface: #FFFFFF; --surface-alt: #F1EBDD;
   --border: rgba(122,95,45,0.16); --border-strong: rgba(122,95,45,0.32);
-  --gold: #8A6A34; --gold-soft: #6E5427; --text: #201D17; --muted: #726A59;
+  --gold: #8A6A34; --gold-soft: #6E5427; --gold-deep: #2E2110; --text: #201D17; --muted: #726A59;
   --green: #2F7A5C; --rose: #A8504F; --amber: #8A6A2A;
   --shadow: 0 10px 28px rgba(70,55,25,0.10);
 }
@@ -217,16 +217,40 @@ function useTheme() {
   return [theme, toggle];
 }
 
+const ACCENTS = {
+  gold: { dark: ["#B8935A", "#D8B885"], light: ["#8A6A34", "#6E5427"] },
+  emerald: { dark: ["#3E9B7F", "#6FC7AC"], light: ["#2C7A5F", "#1F5C47"] },
+  terracotta: { dark: ["#C1694A", "#E0916D"], light: ["#A85539", "#7C3C27"] },
+  indigo: { dark: ["#6E7EB0", "#95A4D6"], light: ["#4C5A8C", "#37426A"] },
+  slate: { dark: ["#5C8A8C", "#8AB8B9"], light: ["#3F6B6D", "#2D4F50"] },
+};
+const ACCENT_LABELS = { gold: "Dourado", emerald: "Esmeralda", terracotta: "Terracota", indigo: "Índigo", slate: "Petróleo" };
+
+function useAccent(theme) {
+  const [accent, setAccent] = useState(() => {
+    const saved = typeof window !== "undefined" && localStorage.getItem("accent");
+    return saved && ACCENTS[saved] ? saved : "gold";
+  });
+  useEffect(() => {
+    const [c1, c2] = (ACCENTS[accent] || ACCENTS.gold)[theme];
+    document.documentElement.style.setProperty("--gold", c1);
+    document.documentElement.style.setProperty("--gold-soft", c2);
+    document.documentElement.style.setProperty("--gold-deep", shade(c1, -0.55));
+    localStorage.setItem("accent", accent);
+  }, [accent, theme]);
+  return [accent, setAccent];
+}
+
 function shade(hex, percent) {
   const f = parseInt(hex.slice(1), 16), t = percent < 0 ? 0 : 255, p = Math.abs(percent);
   const R = f >> 16, G = (f >> 8) & 0x00ff, B = f & 0x0000ff;
   return "#" + (0x1000000 + (Math.round((t - R) * p) + R) * 0x10000 + (Math.round((t - G) * p) + G) * 0x100 + (Math.round((t - B) * p) + B)).toString(16).slice(1);
 }
-const HERO_GRADIENT = "linear-gradient(135deg, #C9A24C, #4A2E12)";
+const HERO_GRADIENT = "linear-gradient(135deg, var(--gold), var(--gold-deep))";
 
 function HeroPanel({ label, value, sub }) {
   return (
-    <div className="rounded-3xl p-6 mb-4 relative overflow-hidden" style={{ background: HERO_GRADIENT, boxShadow: "0 14px 34px rgba(178,127,51,0.35)" }}>
+    <div className="rounded-3xl p-6 mb-4 relative overflow-hidden" style={{ background: HERO_GRADIENT, boxShadow: "0 14px 34px rgba(0,0,0,0.35)" }}>
       <div style={{ position: "absolute", right: -40, top: -40, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
       <div style={{ position: "absolute", left: -25, bottom: -55, width: 130, height: 130, borderRadius: "50%", background: "rgba(255,255,255,0.06)" }} />
       <span className="text-xs relative" style={{ color: "rgba(255,255,255,0.75)" }}>{label}</span>
@@ -651,7 +675,37 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-function TopBar({ profile, onLogout, theme, onToggleTheme, data }) {
+function AccentPicker({ accent, onChange }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button onClick={() => setOpen(true)} className="w-8 h-8 rounded-full flex items-center justify-center transition-all" style={{ border: `1px solid ${C.border}` }}>
+        <span className="w-3.5 h-3.5 rounded-full" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldSoft})` }} />
+      </button>
+      {open && (
+        <Modal title="Cor de destaque" onClose={() => setOpen(false)}>
+          <div className="space-y-2">
+            {Object.keys(ACCENTS).map((key) => {
+              const [c1] = ACCENTS[key].dark;
+              const active = accent === key;
+              return (
+                <button key={key} onClick={() => { onChange(key); setOpen(false); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all"
+                  style={{ background: active ? C.gold : C.bgSoft, color: active ? "#1A1607" : C.text, border: `1px solid ${active ? C.gold : C.border}` }}>
+                  <span className="w-4 h-4 rounded-full shrink-0" style={{ background: c1 }} />
+                  {ACCENT_LABELS[key]}
+                  {active && <Check size={15} className="ml-auto" />}
+                </button>
+              );
+            })}
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+function TopBar({ profile, onLogout, theme, onToggleTheme, accent, onChangeAccent, data }) {
   const [showSearch, setShowSearch] = useState(false);
   return (
     <div className="sticky top-0 z-30" style={{ background: "var(--bg)", borderBottom: `1px solid ${C.border}`, paddingTop: "env(safe-area-inset-top, 0px)" }}>
@@ -663,6 +717,7 @@ function TopBar({ profile, onLogout, theme, onToggleTheme, data }) {
         </div>
         <div className="flex items-center gap-3">
           <button onClick={() => setShowSearch(true)}><Search size={17} color={C.muted} /></button>
+          <AccentPicker accent={accent} onChange={onChangeAccent} />
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <button onClick={onLogout}><LogOut size={17} color={C.muted} /></button>
         </div>
@@ -2791,7 +2846,7 @@ function FloatingAddButton({ onAddExpense, onAddIncome }) {
         </>
       )}
       <button onClick={() => setOpen((v) => !v)} className="rounded-full flex items-center justify-center transition-all active:scale-95"
-        style={{ width: 54, height: 54, background: HERO_GRADIENT, boxShadow: "0 10px 24px rgba(178,127,51,0.45)", transform: open ? "rotate(45deg)" : "none" }}>
+        style={{ width: 54, height: 54, background: HERO_GRADIENT, boxShadow: "0 10px 24px rgba(0,0,0,0.4)", transform: open ? "rotate(45deg)" : "none" }}>
         <Zap size={22} color="#fff" style={{ display: open ? "none" : "block" }} />
         <Plus size={24} color="#fff" style={{ display: open ? "block" : "none" }} />
       </button>
@@ -2865,7 +2920,7 @@ function usePersistentTab(key, defaultValue) {
 
 /* ---------------------------------- DASHBOARDS ---------------------------------- */
 
-function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
+function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme, accent, onChangeAccent }) {
   const [tab, setTab] = usePersistentTab("tab-member", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
@@ -2882,7 +2937,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
   return (
     <>
-      <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} />
+      <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} accent={accent} onChangeAccent={onChangeAccent} data={data} />
       {tab === "overview" && <MemberOverview profile={profile} data={data} refresh={refresh} />}
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
       {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
@@ -2896,7 +2951,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   );
 }
 
-function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
+function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme, accent, onChangeAccent }) {
   const [tab, setTab] = usePersistentTab("tab-admin", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
@@ -2912,7 +2967,7 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
   return (
     <>
-      <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} />
+      <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} accent={accent} onChangeAccent={onChangeAccent} data={data} />
       {tab === "overview" && <AdminOverview profile={profile} data={data} refresh={refresh} />}
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
       {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
@@ -2932,6 +2987,7 @@ export default function App() {
   useFonts();
   useThemeStyles();
   const [theme, toggleTheme] = useTheme();
+  const [accent, setAccent] = useAccent(theme);
   const [authUser, setAuthUser] = useState(undefined);
   const [profile, setProfile] = useState(null);
   const [data, setData] = useState(null);
@@ -2981,9 +3037,9 @@ export default function App() {
     <div className="min-h-screen" style={{ background: C.bg }}>
       {error && <div className="text-center text-xs py-1.5" style={{ background: "rgba(221,124,134,0.15)", color: C.rose }}>{error}</div>}
       {profile.role === "admin" ? (
-        <AdminApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />
+        <AdminApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} accent={accent} onChangeAccent={setAccent} />
       ) : (
-        <MemberApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />
+        <MemberApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} accent={accent} onChangeAccent={setAccent} />
       )}
     </div>
   );
