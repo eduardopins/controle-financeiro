@@ -2045,7 +2045,7 @@ function ReportsScreen({ profile, data, isAdmin }) {
                 <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={3} cornerRadius={6}>
                   {byCategory.map((d, i) => <Cell key={i} fill={getCategoryColor(d.name)} stroke="none" />)}
                 </Pie>
-                <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} />
+                <Tooltip formatter={(v) => brl(v)} position={{ x: 8, y: 4 }} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} />
               </PieChart>
             </ResponsiveContainer>
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ top: -8 }}>
