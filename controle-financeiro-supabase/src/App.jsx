@@ -1206,14 +1206,36 @@ function investmentMonthlyRate(inv) {
   return (Math.pow(1 + annualEffective, 1 / 12) - 1) * 100;
 }
 
+async function fetchCurrentCDI() {
+  const res = await fetch("https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1?formato=json");
+  if (!res.ok) throw new Error("Falha ao consultar o Banco Central");
+  const data = await res.json();
+  const dailyRate = parseFloat(data[0]?.valor);
+  if (isNaN(dailyRate)) throw new Error("Resposta inesperada do Banco Central");
+  return (Math.pow(1 + dailyRate / 100, 252) - 1) * 100;
+}
+
 function InvestmentForm({ allProfiles, onSave, onClose, initial }) {
   const [name, setName] = useState(initial?.name || "");
   const [cdiPercent, setCdiPercent] = useState(initial?.cdi_percent != null ? String(initial.cdi_percent) : "100");
   const [cdiAnnualRate, setCdiAnnualRate] = useState(initial?.cdi_annual_rate != null ? String(initial.cdi_annual_rate) : "");
   const [memberIds, setMemberIds] = useState(initial?.memberIds || []);
   const [saving, setSaving] = useState(false);
+  const [fetchingCdi, setFetchingCdi] = useState(false);
   const [err, setErr] = useState("");
   const toggle = (id) => setMemberIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+
+  const handleFetchCdi = async () => {
+    setFetchingCdi(true); setErr("");
+    try {
+      const rate = await fetchCurrentCDI();
+      setCdiAnnualRate(rate.toFixed(2));
+    } catch {
+      setErr("Não consegui buscar o CDI agora. Preencha manualmente ou tente de novo.");
+    } finally {
+      setFetchingCdi(false);
+    }
+  };
 
   const submit = async () => {
     if (!name.trim()) return;
@@ -1239,7 +1261,9 @@ function InvestmentForm({ allProfiles, onSave, onClose, initial }) {
         <Field label="% do CDI"><IconField icon={<Percent size={13} />} type="number" step="1" value={cdiPercent} onChange={(e) => setCdiPercent(e.target.value)} placeholder="115" /></Field>
         <Field label="CDI atual (% ao ano)"><IconField icon={<Percent size={13} />} type="number" step="0.01" value={cdiAnnualRate} onChange={(e) => setCdiAnnualRate(e.target.value)} placeholder="Ex: 10,75" /></Field>
       </div>
-      <p className="text-[11px] -mt-2.5 mb-3.5" style={{ color: C.muted }}>Não busco o CDI automaticamente — preencha com o valor atual (você encontra em sites como o do Banco Central ou da B3).</p>
+      <button onClick={handleFetchCdi} disabled={fetchingCdi} className="flex items-center gap-1.5 text-xs mb-3.5" style={{ color: C.gold }}>
+        <TrendingUp size={12} /> {fetchingCdi ? "Buscando..." : "Buscar CDI atual (Banco Central)"}
+      </button>
       <Field label="Quem mais tem acesso a essa caixinha">
         <div className="flex flex-col gap-2 mt-1">
           {allProfiles.map((p) => (
