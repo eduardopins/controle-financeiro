@@ -1253,6 +1253,8 @@ async function fetchCurrentCDI() {
 function InvestmentForm({ allProfiles, viewerProfileId, onSave, onClose, initial }) {
   const [name, setName] = useState(initial?.name || "");
   const [cdiPercent, setCdiPercent] = useState(initial?.cdi_percent != null ? String(initial.cdi_percent) : "100");
+  const [targetAmount, setTargetAmount] = useState(initial?.target_amount != null ? String(initial.target_amount) : "");
+  const [targetDate, setTargetDate] = useState(initial?.target_date || "");
   const [memberIds, setMemberIds] = useState(initial?.memberIds || []);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
@@ -1266,6 +1268,8 @@ function InvestmentForm({ allProfiles, viewerProfileId, onSave, onClose, initial
       await onSave({
         id: initial?.id, name: name.trim(),
         cdi_percent: cdiPercent ? parseFloat(cdiPercent) : null,
+        target_amount: targetAmount ? parseFloat(targetAmount) : null,
+        target_date: targetDate || null,
         memberIds,
       });
       onClose();
@@ -1280,6 +1284,10 @@ function InvestmentForm({ allProfiles, viewerProfileId, onSave, onClose, initial
       <Field label="Nome da caixinha"><TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Reserva de emergência" /></Field>
       <Field label="% do CDI"><IconField icon={<Percent size={13} />} type="number" step="1" value={cdiPercent} onChange={(e) => setCdiPercent(e.target.value)} placeholder="115" /></Field>
       <p className="text-[11px] -mt-2.5 mb-3.5" style={{ color: C.muted }}>O CDI atual é buscado automaticamente e vale pra todas as caixinhas — não precisa informar aqui.</p>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Meta (R$, opcional)"><CurrencyInput value={targetAmount} onChange={setTargetAmount} /></Field>
+        <Field label="Até quando (opcional)"><TextInput type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} /></Field>
+      </div>
       {shareCandidates.length > 0 && (
         <Field label="Compartilhar com outra pessoa (opcional)">
           <div className="flex flex-col gap-2 mt-1">
@@ -1369,6 +1377,15 @@ function InvestmentCard({ inv, balance, transactions, profiles, viewerProfileId,
       )}
       <span className="text-[11px] block mt-2" style={{ color: C.muted }}>saldo</span>
       <div className="mb-3"><Amount value={balance} size="text-2xl" tone="green" /></div>
+      {inv.target_amount != null && (
+        <div className="mb-3">
+          <div className="flex items-baseline justify-between mb-1.5 text-xs" style={{ color: C.muted }}>
+            <span>meta{inv.target_date ? ` até ${formatShortDate(inv.target_date)}` : ""}</span>
+            <span style={{ color: C.text }}>{brl(balance)} <span style={{ color: C.muted }}>de {brl(inv.target_amount)}</span></span>
+          </div>
+          <ProgressBar pct={(balance / inv.target_amount) * 100} tone={balance >= inv.target_amount ? "green" : "gold"} />
+        </div>
+      )}
       {(() => {
         const rate = investmentMonthlyRate(inv, cdiAnnual);
         return rate != null && (
@@ -1829,8 +1846,29 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <ScreenHeader title="Faturas" subtitle={isAdmin ? "Todos os lançamentos" : "Seus lançamentos"} />
+      <ScreenHeader title={viewMode === "cards" ? "Cartões" : "Faturas"} subtitle={viewMode === "cards" ? "Limites, vencimentos e acessos" : (isAdmin ? "Todos os lançamentos" : "Seus lançamentos")} />
 
+      <div className="flex gap-1.5 mb-3">
+        <button onClick={() => setViewMode("faturas")} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+          style={{ background: viewMode === "faturas" ? C.gold : "transparent", color: viewMode === "faturas" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "faturas" ? C.gold : C.border}` }}>
+          Faturas
+        </button>
+        <button onClick={() => setViewMode("lista")} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+          style={{ background: viewMode === "lista" ? C.gold : "transparent", color: viewMode === "lista" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "lista" ? C.gold : C.border}` }}>
+          Buscar tudo
+        </button>
+        {isAdmin && (
+          <button onClick={() => setViewMode("cards")} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+            style={{ background: viewMode === "cards" ? C.gold : "transparent", color: viewMode === "cards" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "cards" ? C.gold : C.border}` }}>
+            Cartões
+          </button>
+        )}
+      </div>
+
+      {viewMode === "cards" ? (
+        <AdminCards data={data} refresh={refresh} embedded />
+      ) : (
+        <>
       {isAdmin && (
         <div className="flex gap-2 mb-3">
           <div className="flex-1 min-w-0">
@@ -1852,34 +1890,12 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
         </div>
       )}
 
-      {viewMode === "lista" && (
-        <div className="flex gap-1.5 mb-3">
-          <button onClick={() => setViewMode("faturas")} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-            style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}` }}>
-            Faturas
-          </button>
-          <button onClick={() => setViewMode("lista")} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-            style={{ background: C.gold, color: "#1A1607", border: `1px solid ${C.gold}` }}>
-            Buscar tudo
-          </button>
-        </div>
-      )}
-
       {viewMode === "faturas" && (
         invoiceMonthsList.length === 0 ? (
           <Panel><EmptyState icon={<CreditCard size={28} />} text="Nada por aqui ainda." /></Panel>
         ) : (
           <>
             <div className="flex gap-1.5 mb-3 items-center">
-              <button onClick={() => setViewMode("faturas")} className="shrink-0 px-3 py-2 rounded-lg text-xs font-medium transition-all"
-                style={{ background: C.gold, color: "#1A1607", border: `1px solid ${C.gold}` }}>
-                Faturas
-              </button>
-              <button onClick={() => setViewMode("lista")} className="shrink-0 px-3 py-2 rounded-lg text-xs font-medium transition-all"
-                style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}` }}>
-                Buscar tudo
-              </button>
-              <div className="w-px h-5 shrink-0" style={{ background: C.border }} />
               <div ref={carouselRef} onMouseDown={onCarouselMouseDown} onMouseMove={onCarouselMouseMove} onMouseUp={stopDrag} onMouseLeave={stopDrag}
                 className="flex gap-1.5 overflow-x-auto flex-1 pb-1 select-none" style={{ scrollbarWidth: "none", cursor: "grab", WebkitOverflowScrolling: "touch" }}>
                 {invoiceMonthsList.map((mk) => {
@@ -1984,6 +2000,8 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
               )
             )}
           </Panel>
+        </>
+      )}
         </>
       )}
 
@@ -2179,7 +2197,7 @@ function AdminOverview({ profile, data, refresh }) {
 
 /* ---------------------------------- ADMIN: CARDS ---------------------------------- */
 
-function AdminCards({ data, refresh }) {
+function AdminCards({ data, refresh, embedded }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const now = currentMonthKey();
@@ -2187,15 +2205,21 @@ function AdminCards({ data, refresh }) {
   const handleSave = async (card) => { await saveCard(card); await refresh(); };
   const handleDelete = async (card) => { if (!window.confirm(`Excluir o cartão "${card.name}"? Isso também remove os gastos lançados nele.`)) return; await deleteCard(card); await refresh(); };
 
+  const totalLimit = data.cards.reduce((s, c) => s + c.card_limit, 0);
   const totalAvailable = data.cards.reduce((s, c) => {
     const used = data.expenses.filter((e) => e.card_id === c.id).reduce((s2, e) => s2 + outstanding(e, now), 0);
     return s + Math.max(c.card_limit - used, 0);
   }, 0);
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <ScreenHeader title="Cartões" subtitle="Limites, vencimentos e acessos" />
-      {data.cards.length > 0 && <HeroPanel label="Limite disponível total" value={totalAvailable} />}
+    <div className={embedded ? "" : "max-w-3xl mx-auto px-4 py-5 pb-28"}>
+      {!embedded && <ScreenHeader title="Cartões" subtitle="Limites, vencimentos e acessos" />}
+      {data.cards.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <Panel><span className="text-[11px]" style={{ color: C.muted }}>limite total</span><div className="mt-1"><Amount value={totalLimit} size="text-lg" /></div></Panel>
+          <Panel><span className="text-[11px]" style={{ color: C.muted }}>disponível total</span><div className="mt-1"><Amount value={totalAvailable} size="text-lg" tone="green" /></div></Panel>
+        </div>
+      )}
       <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Novo cartão</Btn>
       <div className="mt-4 space-y-4">
         {data.cards.length === 0 && <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão cadastrado ainda." /></Panel>}
@@ -2315,9 +2339,14 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
   if (view === "goals") {
     return (
       <div className="max-w-3xl mx-auto px-4 pt-5">
-        <div className="flex gap-1.5 mb-1">
-          <button onClick={() => setView("charts")} className="px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}` }}>Gráficos</button>
-          <button onClick={() => setView("goals")} className="px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: C.gold, color: "#1A1607", border: `1px solid ${C.gold}` }}>Metas</button>
+        <ScreenHeader title="Relatórios" subtitle={isAdmin ? "Panorama financeiro" : "Seu panorama financeiro"} />
+        <div className="flex gap-2 mb-4">
+          <button onClick={() => setView("charts")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.surface, color: C.muted, border: `1px solid ${C.border}` }}>
+            <PieIcon size={15} /> Gráficos
+          </button>
+          <button onClick={() => setView("goals")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.gold, color: "#1A1607", border: `1px solid ${C.gold}` }}>
+            <Target size={15} /> Metas
+          </button>
         </div>
         <GoalsScreen profile={profile} data={data} refresh={refresh} embedded />
       </div>
@@ -2327,9 +2356,13 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28 space-y-4">
       <ScreenHeader title="Relatórios" subtitle={isAdmin ? `Panorama financeiro · ${scopeLabel}` : "Seu panorama financeiro"} />
-      <div className="flex gap-1.5 -mt-2">
-        <button onClick={() => setView("charts")} className="px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: C.gold, color: "#1A1607", border: `1px solid ${C.gold}` }}>Gráficos</button>
-        <button onClick={() => setView("goals")} className="px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}` }}>Metas</button>
+      <div className="flex gap-2">
+        <button onClick={() => setView("charts")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.gold, color: "#1A1607", border: `1px solid ${C.gold}` }}>
+          <PieIcon size={15} /> Gráficos
+        </button>
+        <button onClick={() => setView("goals")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.surface, color: C.muted, border: `1px solid ${C.border}` }}>
+          <Target size={15} /> Metas
+        </button>
       </div>
       <PeriodFilter value={period} onChange={setPeriod} customRange={customRange} onCustomChange={setCustomRange} />
       <HeroPanel label={heroLabel} value={totalPeriod} />
@@ -2478,6 +2511,25 @@ function useBillAlerts(cards, expenses) {
     });
   }, [cards, expenses]);
 }
+function useBudgetAlerts(profile, data) {
+  useEffect(() => {
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    const now = currentMonthKey();
+    const today = new Date().toISOString().slice(0, 10);
+    const myBudgets = data.budgets.filter((b) => b.profile_id === profile.id);
+    const dueNow = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now));
+    myBudgets.forEach((b) => {
+      const spent = dueNow.filter((e) => e.category === b.category).reduce((s, e) => s + monthlyValue(e), 0);
+      const pct = b.monthly_limit ? (spent / b.monthly_limit) * 100 : 0;
+      const key = `notif-goal-${b.id}-${today}`;
+      if (pct >= 100 && !localStorage.getItem(key)) {
+        showLocalNotification("Meta estourada", `${b.category}: você já passou da meta (${pct.toFixed(0)}%).`);
+        localStorage.setItem(key, "1");
+      }
+    });
+  }, [profile.id, data.budgets, data.expenses]);
+}
 
 function usePersistentTab(key, defaultValue) {
   const [tab, setTabState] = useState(() => {
@@ -2497,11 +2549,12 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const myCards = accessibleCards(data, profile.id);
   useBillAlerts(myCards, data.expenses);
+  useBudgetAlerts(profile, data);
   const tabs = [
-    { id: "investments", label: "Invest.", icon: <PiggyBank size={18} /> },
-    { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(myCards, data.expenses) },
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
+    { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(myCards, data.expenses) },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
+    { id: "investments", label: "Invest.", icon: <PiggyBank size={18} /> },
   ];
   const handleQuickSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
   return (
@@ -2523,10 +2576,10 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = usePersistentTab("tab-admin", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   useBillAlerts(data.cards, data.expenses);
+  useBudgetAlerts(profile, data);
   const tabs = [
-    { id: "cards", label: "Cartões", icon: <CreditCard size={18} /> },
-    { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(data.cards, data.expenses) },
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
+    { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(data.cards, data.expenses) },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
     { id: "investments", label: "Invest.", icon: <PiggyBank size={18} /> },
   ];
@@ -2535,7 +2588,6 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
     <>
       <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} />
       {tab === "overview" && <AdminOverview profile={profile} data={data} refresh={refresh} />}
-      {tab === "cards" && <AdminCards data={data} refresh={refresh} />}
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
       {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
       {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
