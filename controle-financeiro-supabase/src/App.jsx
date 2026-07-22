@@ -217,32 +217,6 @@ function useTheme() {
   return [theme, toggle];
 }
 
-const ACCENTS = {
-  gold: { dark: ["#B8935A", "#D8B885"], light: ["#8A6A34", "#6E5427"], text: "#1A1607" },
-  emerald: { dark: ["#3E9B7F", "#6FC7AC"], light: ["#2C7A5F", "#1F5C47"], text: "#FFFFFF" },
-  terracotta: { dark: ["#C1694A", "#E0916D"], light: ["#A85539", "#7C3C27"], text: "#FFFFFF" },
-  indigo: { dark: ["#6E7EB0", "#95A4D6"], light: ["#4C5A8C", "#37426A"], text: "#FFFFFF" },
-  slate: { dark: ["#5C8A8C", "#8AB8B9"], light: ["#3F6B6D", "#2D4F50"], text: "#FFFFFF" },
-};
-const ACCENT_LABELS = { gold: "Dourado", emerald: "Esmeralda", terracotta: "Terracota", indigo: "Índigo", slate: "Petróleo" };
-
-function useAccent(theme) {
-  const [accent, setAccent] = useState(() => {
-    const saved = typeof window !== "undefined" && localStorage.getItem("accent");
-    return saved && ACCENTS[saved] ? saved : "indigo";
-  });
-  useEffect(() => {
-    const def = ACCENTS[accent] || ACCENTS.indigo;
-    const [c1, c2] = def[theme];
-    document.documentElement.style.setProperty("--gold", c1);
-    document.documentElement.style.setProperty("--gold-soft", c2);
-    document.documentElement.style.setProperty("--gold-deep", shade(c1, -0.55));
-    document.documentElement.style.setProperty("--gold-contrast", def.text);
-    localStorage.setItem("accent", accent);
-  }, [accent, theme]);
-  return [accent, setAccent];
-}
-
 function shade(hex, percent) {
   const f = parseInt(hex.slice(1), 16), t = percent < 0 ? 0 : 255, p = Math.abs(percent);
   const R = f >> 16, G = (f >> 8) & 0x00ff, B = f & 0x0000ff;
@@ -677,37 +651,7 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-function AccentPicker({ accent, onChange }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button onClick={() => setOpen(true)} className="w-8 h-8 rounded-full flex items-center justify-center transition-all" style={{ border: `1px solid ${C.border}` }}>
-        <span className="w-3.5 h-3.5 rounded-full" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldSoft})` }} />
-      </button>
-      {open && (
-        <Modal title="Cor de destaque" onClose={() => setOpen(false)}>
-          <div className="space-y-2">
-            {Object.keys(ACCENTS).map((key) => {
-              const [c1] = ACCENTS[key].dark;
-              const active = accent === key;
-              return (
-                <button key={key} onClick={() => { onChange(key); setOpen(false); }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all"
-                  style={{ background: active ? C.gold : C.bgSoft, color: active ? "var(--gold-contrast)" : C.text, border: `1px solid ${active ? C.gold : C.border}` }}>
-                  <span className="w-4 h-4 rounded-full shrink-0" style={{ background: c1 }} />
-                  {ACCENT_LABELS[key]}
-                  {active && <Check size={15} className="ml-auto" />}
-                </button>
-              );
-            })}
-          </div>
-        </Modal>
-      )}
-    </>
-  );
-}
-
-function TopBar({ profile, onLogout, theme, onToggleTheme, accent, onChangeAccent, data }) {
+function TopBar({ profile, onLogout, theme, onToggleTheme, data }) {
   const [showSearch, setShowSearch] = useState(false);
   return (
     <div className="sticky top-0 z-30" style={{ background: "var(--bg)", borderBottom: `1px solid ${C.border}`, paddingTop: "env(safe-area-inset-top, 0px)" }}>
@@ -719,7 +663,6 @@ function TopBar({ profile, onLogout, theme, onToggleTheme, accent, onChangeAccen
         </div>
         <div className="flex items-center gap-3">
           <button onClick={() => setShowSearch(true)}><Search size={17} color={C.muted} /></button>
-          <AccentPicker accent={accent} onChange={onChangeAccent} />
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <button onClick={onLogout}><LogOut size={17} color={C.muted} /></button>
         </div>
@@ -1726,7 +1669,7 @@ function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
   const handleDeleteTx = async (tx) => { if (!window.confirm("Excluir esta movimentação?")) return; await deleteInvestmentTransaction(tx); await refresh(); };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
+    <div className="max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16">
       <ScreenHeader title="Investimentos" subtitle="Caixinhas de renda fixa" />
       <HeroPanel label="Saldo total investido" value={totalBalance} />
       <div className="flex items-center gap-1.5 mb-4 text-xs" style={{ color: C.muted }}>
@@ -1780,7 +1723,7 @@ function GoalsScreen({ profile, data, refresh, embedded }) {
   };
 
   return (
-    <div className={embedded ? "pb-28 pt-3" : "max-w-3xl mx-auto px-4 py-5 pb-28"}>
+    <div className={embedded ? "pb-28 pt-3" : "max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16"}>
       {!embedded && <ScreenHeader title="Metas" subtitle="Seus limites por categoria" />}
       <div className="space-y-3">
         {myCategories.map((cat) => {
@@ -2132,7 +2075,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   }, [viewMode, invoiceMonthsList.join(","), filterCard, filterPerson]);
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
+    <div className="max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16">
       <ScreenHeader title={viewMode === "cards" ? "Cartões" : "Faturas"} subtitle={viewMode === "cards" ? "Limites, vencimentos e acessos" : (isAdmin ? "Todos os lançamentos" : "Seus lançamentos")} />
 
       <div className="flex gap-2 mb-3">
@@ -2386,7 +2329,7 @@ function MemberOverview({ profile, data, refresh }) {
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
+    <div className="max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16">
       <div className="flex items-center justify-between">
         <ScreenHeader title={`Olá, ${profile.name.split(" ")[0]}`} subtitle="Seu mês" />
         <button onClick={handleShare} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mb-4" style={{ border: `1px solid ${C.border}` }}>
@@ -2440,7 +2383,7 @@ function AdminOverview({ profile, data, refresh }) {
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
+    <div className="max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16">
       <div className="flex items-center justify-between">
         <ScreenHeader title="Visão geral" subtitle="Este mês" />
         <button onClick={handleShare} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mb-4" style={{ border: `1px solid ${C.border}` }}>
@@ -2491,7 +2434,7 @@ function AdminCards({ data, refresh, embedded }) {
   }, 0);
 
   return (
-    <div className={embedded ? "" : "max-w-3xl mx-auto px-4 py-5 pb-28"}>
+    <div className={embedded ? "" : "max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16"}>
       {!embedded && <ScreenHeader title="Cartões" subtitle="Limites, vencimentos e acessos" />}
       {data.cards.length > 0 && (
         <div className="grid grid-cols-2 gap-3 mb-4">
@@ -2643,7 +2586,7 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
 
   if (view === "goals") {
     return (
-      <div className="max-w-3xl mx-auto px-4 pt-5">
+      <div className="max-w-3xl mx-auto px-4 pt-5 lg:max-w-6xl lg:px-10 lg:pt-8">
         <ScreenHeader title="Relatórios" subtitle={isAdmin ? "Panorama financeiro" : "Seu panorama financeiro"} />
         <div className="flex gap-2 mb-4">
           <button onClick={() => setView("charts")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.surface, color: C.muted, border: `1px solid ${C.border}` }}>
@@ -2659,7 +2602,7 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-5 pb-28 space-y-4">
+    <div className="max-w-3xl mx-auto px-4 py-5 pb-28 space-y-4 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16">
       <ScreenHeader title="Relatórios" subtitle={isAdmin ? `Panorama financeiro · ${scopeLabel}` : "Seu panorama financeiro"} />
       <div className="flex gap-2">
         <button onClick={() => setView("charts")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.gold, color: "var(--gold-contrast)", border: `1px solid ${C.gold}` }}>
@@ -2922,7 +2865,60 @@ function usePersistentTab(key, defaultValue) {
 
 /* ---------------------------------- DASHBOARDS ---------------------------------- */
 
-function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme, accent, onChangeAccent }) {
+function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, data }) {
+  const [showSearch, setShowSearch] = useState(false);
+  const initial = firstName(profile.name).charAt(0).toUpperCase();
+  return (
+    <div className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 lg:sticky lg:top-0 lg:h-screen px-4 py-6"
+      style={{ background: "var(--bg-soft)", borderRight: `1px solid ${C.border}` }}>
+      <div className="flex items-center gap-2.5 px-2 mb-8">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldSoft})`, color: "var(--gold-contrast)" }}>
+          <Wallet size={16} />
+        </div>
+        <span className="font-bold text-sm truncate" style={{ fontFamily: "'Manrope', sans-serif", color: C.text }}>Controle Financeiro</span>
+      </div>
+
+      <button onClick={() => setShowSearch(true)} className="flex items-center gap-2.5 px-3 py-2.5 mb-3 rounded-xl text-sm" style={{ background: C.bgSoft, border: `1px solid ${C.border}`, color: C.muted }}>
+        <Search size={15} /> Buscar em tudo...
+      </button>
+      {showSearch && <GlobalSearchModal profile={profile} data={data} onClose={() => setShowSearch(false)} />}
+
+      <nav className="flex flex-col gap-1 flex-1">
+        {tabs.map((t) => {
+          const active = tab === t.id;
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left relative">
+              <span style={{ color: active ? C.gold : C.muted }}>{t.icon}</span>
+              <span style={{ color: active ? C.text : C.muted }}>{t.label}</span>
+              {t.badge && <span className="absolute right-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full" style={{ background: C.rose }} />}
+              {active && <span className="absolute inset-0 rounded-xl -z-10" style={{ background: C.surface, border: `1px solid ${C.borderStrong}` }} />}
+            </button>
+          );
+        })}
+      </nav>
+
+      <div className="flex items-center gap-2 mb-3 px-1">
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+        <button onClick={onLogout} className="w-8 h-8 rounded-full flex items-center justify-center transition-all ml-auto" style={{ border: `1px solid ${C.border}` }}>
+          <LogOut size={14} color={C.muted} />
+        </button>
+      </div>
+      <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+        <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+          style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldSoft})`, color: "var(--gold-contrast)", fontFamily: "'Manrope', sans-serif" }}>
+          {initial}
+        </div>
+        <div className="min-w-0">
+          <div className="text-xs font-semibold truncate" style={{ color: C.text }}>{firstName(profile.name)}</div>
+          {profile.role === "admin" && <div className="text-[10.5px]" style={{ color: C.muted }}>admin</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = usePersistentTab("tab-member", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
@@ -2938,22 +2934,25 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme, acc
   const handleQuickSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
   const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
   return (
-    <>
-      <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} accent={accent} onChangeAccent={onChangeAccent} data={data} />
-      {tab === "overview" && <MemberOverview profile={profile} data={data} refresh={refresh} />}
-      {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
-      {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
-      {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
-      <FloatingAddButton onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
-      {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id}
-        customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
-      {showQuickIncome && <IncomeForm profileId={profile.id} onSave={handleQuickIncomeSave} onClose={() => setShowQuickIncome(false)} />}
-      <BottomNav tabs={tabs} tab={tab} setTab={setTab} />
-    </>
+    <div className="lg:flex lg:items-start">
+      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} />
+      <div className="lg:flex-1 lg:min-w-0">
+        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} /></div>
+        {tab === "overview" && <MemberOverview profile={profile} data={data} refresh={refresh} />}
+        {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
+        {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
+        {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
+        <FloatingAddButton onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
+        {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id}
+          customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
+        {showQuickIncome && <IncomeForm profileId={profile.id} onSave={handleQuickIncomeSave} onClose={() => setShowQuickIncome(false)} />}
+        <div className="lg:hidden"><BottomNav tabs={tabs} tab={tab} setTab={setTab} /></div>
+      </div>
+    </div>
   );
 }
 
-function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme, accent, onChangeAccent }) {
+function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = usePersistentTab("tab-admin", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
@@ -2968,18 +2967,21 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme, acce
   const handleQuickSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
   const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
   return (
-    <>
-      <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} accent={accent} onChangeAccent={onChangeAccent} data={data} />
-      {tab === "overview" && <AdminOverview profile={profile} data={data} refresh={refresh} />}
-      {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
-      {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
-      {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
-      <FloatingAddButton onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
-      {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id} canRefund
-        customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
-      {showQuickIncome && <IncomeForm profileId={profile.id} onSave={handleQuickIncomeSave} onClose={() => setShowQuickIncome(false)} />}
-      <BottomNav tabs={tabs} tab={tab} setTab={setTab} />
-    </>
+    <div className="lg:flex lg:items-start">
+      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} />
+      <div className="lg:flex-1 lg:min-w-0">
+        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} /></div>
+        {tab === "overview" && <AdminOverview profile={profile} data={data} refresh={refresh} />}
+        {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
+        {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
+        {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
+        <FloatingAddButton onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
+        {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id} canRefund
+          customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
+        {showQuickIncome && <IncomeForm profileId={profile.id} onSave={handleQuickIncomeSave} onClose={() => setShowQuickIncome(false)} />}
+        <div className="lg:hidden"><BottomNav tabs={tabs} tab={tab} setTab={setTab} /></div>
+      </div>
+    </div>
   );
 }
 
@@ -2989,7 +2991,6 @@ export default function App() {
   useFonts();
   useThemeStyles();
   const [theme, toggleTheme] = useTheme();
-  const [accent, setAccent] = useAccent(theme);
   const [authUser, setAuthUser] = useState(undefined);
   const [profile, setProfile] = useState(null);
   const [data, setData] = useState(null);
@@ -3039,9 +3040,9 @@ export default function App() {
     <div className="min-h-screen" style={{ background: C.bg }}>
       {error && <div className="text-center text-xs py-1.5" style={{ background: "rgba(221,124,134,0.15)", color: C.rose }}>{error}</div>}
       {profile.role === "admin" ? (
-        <AdminApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} accent={accent} onChangeAccent={setAccent} />
+        <AdminApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />
       ) : (
-        <MemberApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} accent={accent} onChangeAccent={setAccent} />
+        <MemberApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />
       )}
     </div>
   );
