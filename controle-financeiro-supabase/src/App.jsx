@@ -1263,11 +1263,12 @@ function IncomeForm({ profileId, onSave, onClose, initial }) {
   );
 }
 
-function IncomeSection({ profile, data, refresh }) {
+function IncomeSection({ profile, data, refresh, scopeIds, scopeLabel }) {
   const now = currentMonthKey();
+  const ids = scopeIds && scopeIds.length > 0 ? scopeIds : [profile.id];
   const myIncomes = (data.incomes || []).filter((i) => i.profile_id === profile.id);
-  const incomeMonth = myIncomes.filter((i) => isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
-  const expenseMonth = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
+  const incomeMonth = (data.incomes || []).filter((i) => ids.includes(i.profile_id) && isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
+  const expenseMonth = data.expenses.filter((e) => ids.includes(e.profile_id) && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
   const saldo = incomeMonth - expenseMonth;
   const myInvestments = (data.investments || []).filter((inv) => inv.created_by === profile.id || inv.memberIds.includes(profile.id));
   const investedTotal = myInvestments.reduce((s, inv) => s + investmentBalance(inv.id, data.investmentTransactions || []), 0);
@@ -1285,7 +1286,7 @@ function IncomeSection({ profile, data, refresh }) {
             {saldo < 0 ? <TrendingDown size={19} color={C.rose} /> : <TrendingUp size={19} color={C.green} />}
           </div>
           <div>
-            <span className="text-[11px]" style={{ color: C.muted }}>saldo do mês</span>
+            <span className="text-[11px]" style={{ color: C.muted }}>{scopeLabel || "saldo do mês"}</span>
             <div><Amount value={saldo} size="text-2xl" tone={saldo < 0 ? "rose" : "green"} /></div>
           </div>
         </div>
@@ -2384,18 +2385,6 @@ function AdminOverview({ profile, data, refresh }) {
       </div>
       <div className="space-y-4">
         <HeroPanel label={scopeActive ? buildHeading(scopeIds) : "Total do mês"} value={totalMonth} />
-        {scopeActive && (
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}`, boxShadow: C.shadow }}>
-              <span className="text-[11px]" style={{ color: C.muted }}>receita</span>
-              <div className="mt-1"><Amount value={scopedIncome} size="text-lg" tone="green" /></div>
-            </div>
-            <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${scopedSaldo < 0 ? "rgba(168,80,79,0.4)" : C.border}`, boxShadow: C.shadow }}>
-              <span className="text-[11px]" style={{ color: C.muted }}>saldo</span>
-              <div className="mt-1"><Amount value={scopedSaldo} size="text-lg" tone={scopedSaldo < 0 ? "rose" : "green"} /></div>
-            </div>
-          </div>
-        )}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {byPerson.map((p) => {
             const active = scopeIds.includes(p.id);
@@ -2407,7 +2396,7 @@ function AdminOverview({ profile, data, refresh }) {
             );
           })}
         </div>
-        <IncomeSection profile={profile} data={data} refresh={refresh} />
+        <IncomeSection profile={profile} data={data} refresh={refresh} scopeIds={scopeIds} scopeLabel={scopeActive ? `saldo · ${buildHeading(scopeIds)}` : undefined} />
         <h4 className="text-xs font-medium mb-1 tracking-wide uppercase" style={{ color: C.muted }}>Cartões</h4>
         <div className={`grid grid-cols-1 ${data.cards.length > 1 ? "sm:grid-cols-2" : ""} gap-3`}>
           {data.cards.map((c) => {
