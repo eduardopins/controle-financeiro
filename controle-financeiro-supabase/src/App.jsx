@@ -1045,7 +1045,10 @@ function GroupedExpenseRow({ parts, cardName, personName, viewerProfileId, showP
   );
 }
 
-function ExpenseRow({ exp, cardName, personName, creatorName, onEdit, onDelete, showPerson, selectable, selected, onToggleSelect }) {
+function ExpenseRow({ exp, cardName, personName, creatorName, contextMonth, onEdit, onDelete, showPerson, selectable, selected, onToggleSelect }) {
+  const installmentLabel = !exp.is_recurring && exp.installments > 1
+    ? (contextMonth ? `${Math.min(Math.max(diffMonths(exp.first_month, contextMonth) + 1, 1), exp.installments)}/${exp.installments}` : `${exp.installments}x`)
+    : null;
   return (
     <div className="flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}` }}>
       {selectable && (
@@ -1062,7 +1065,7 @@ function ExpenseRow({ exp, cardName, personName, creatorName, onEdit, onDelete, 
         </div>
         <div className="text-[11px] truncate" style={{ color: C.muted }}>
           {formatShortDate(exp.purchase_date)} · {exp.category} · {cardName}{showPerson ? ` · ${personName}` : ""}
-          {!exp.is_recurring && exp.installments > 1 && ` · ${exp.installments}x`}
+          {installmentLabel && ` · ${installmentLabel}`}
           {exp.is_recurring && " · recorrente"}
           {exp.is_refund && " · reembolso"}
           {exp.created_by && exp.created_by !== exp.profile_id && ` · lançado por ${creatorName}`}
@@ -1617,7 +1620,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
                     <GroupedExpenseRow key={row.groupId} parts={row.parts} cardName={cardName(row.primary.card_id)} personName={personName} viewerProfileId={profile.id} showPerson={isAdmin}
                       onEdit={(e) => { setEditing(e); setShowForm(true); }} onDeleteGroup={handleDeleteGroup} />
                   ) : (
-                    <ExpenseRow key={row.exp.id} exp={row.exp} cardName={cardName(row.exp.card_id)} personName={personName(row.exp.profile_id)} creatorName={row.exp.created_by ? personName(row.exp.created_by) : ""} showPerson={isAdmin}
+                    <ExpenseRow key={row.exp.id} exp={row.exp} cardName={cardName(row.exp.card_id)} personName={personName(row.exp.profile_id)} creatorName={row.exp.created_by ? personName(row.exp.created_by) : ""} showPerson={isAdmin} contextMonth={selectedMonth}
                       onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} />
                   )
                 )
