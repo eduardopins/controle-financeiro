@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./lib/supabaseClient";
 import {
-  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, LabelList,
+  PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, LabelList,
 } from "recharts";
 import {
   CreditCard, Plus, Pencil, Trash2, LogOut, LayoutGrid, Wallet, PieChart as PieIcon,
@@ -592,7 +592,8 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-function TopBar({ profile, onLogout, theme, onToggleTheme }) {
+function TopBar({ profile, onLogout, theme, onToggleTheme, data }) {
+  const [showSearch, setShowSearch] = useState(false);
   return (
     <div className="sticky top-0 z-30" style={{ background: "var(--bg)", borderBottom: `1px solid ${C.border}`, paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="max-w-3xl mx-auto px-4 py-3.5 flex items-center justify-between">
@@ -602,11 +603,102 @@ function TopBar({ profile, onLogout, theme, onToggleTheme }) {
           {profile.role === "admin" && <Chip>admin</Chip>}
         </div>
         <div className="flex items-center gap-3">
+          <button onClick={() => setShowSearch(true)}><Search size={17} color={C.muted} /></button>
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <button onClick={onLogout}><LogOut size={17} color={C.muted} /></button>
         </div>
       </div>
+      {showSearch && <GlobalSearchModal profile={profile} data={data} onClose={() => setShowSearch(false)} />}
     </div>
+  );
+}
+
+function GlobalSearchModal({ profile, data, onClose }) {
+  const [query, setQuery] = useState("");
+  const isAdmin = profile.role === "admin";
+  const personName = (id) => firstName((data.profiles || []).find((u) => u.id === id)?.name) || "-";
+  const q = query.trim().toLowerCase();
+
+  const scopedExpenses = isAdmin ? data.expenses : data.expenses.filter((e) => e.profile_id === profile.id);
+  const scopedIncomes = (data.incomes || []).filter((i) => isAdmin || i.profile_id === profile.id);
+  const scopedInvestments = (data.investments || []).filter((inv) => isAdmin || inv.created_by === profile.id || inv.memberIds.includes(profile.id));
+  const scopedInvestmentIds = scopedInvestments.map((inv) => inv.id);
+  const scopedInvestmentTx = (data.investmentTransactions || []).filter((t) => scopedInvestmentIds.includes(t.investment_id));
+
+  const expenseResults = q.length < 2 ? [] : scopedExpenses.filter((e) => e.description.toLowerCase().includes(q) || e.category.toLowerCase().includes(q))
+    .sort((a, b) => b.date.localeCompare(a.date)).slice(0, 15);
+  const incomeResults = q.length < 2 ? [] : scopedIncomes.filter((i) => i.description.toLowerCase().includes(q))
+    .sort((a, b) => b.income_date.localeCompare(a.income_date)).slice(0, 10);
+  const investmentResults = q.length < 2 ? [] : scopedInvestments.filter((inv) => inv.name.toLowerCase().includes(q)).slice(0, 10);
+  const investmentTxResults = q.length < 2 ? [] : scopedInvestmentTx.filter((t) => (t.description || "").toLowerCase().includes(q))
+    .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date)).slice(0, 10);
+
+  const nothingFound = q.length >= 2 && expenseResults.length === 0 && incomeResults.length === 0 && investmentResults.length === 0 && investmentTxResults.length === 0;
+
+  return (
+    <Modal title="Buscar em tudo" onClose={onClose}>
+      <div className="relative mb-3">
+        <Search size={15} color={C.muted} className="absolute left-3 top-1/2 -translate-y-1/2" />
+        <TextInput autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Gastos, receitas, investimentos..." style={{ paddingLeft: 34 }} />
+      </div>
+
+      {q.length < 2 && <p className="text-xs text-center py-4" style={{ color: C.muted }}>Digite ao menos 2 letras para buscar.</p>}
+      {nothingFound && <p className="text-xs text-center py-4" style={{ color: C.muted }}>Nada encontrado para "{query}".</p>}
+
+      {expenseResults.length > 0 && (
+        <div className="mb-3">
+          <h5 className="text-[10px] uppercase tracking-wide mb-1.5" style={{ color: C.muted }}>Gastos</h5>
+          {expenseResults.map((e) => (
+            <div key={e.id} className="flex items-center justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.border}` }}>
+              <div className="min-w-0">
+                <div className="truncate" style={{ color: C.text }}>{e.description}</div>
+                <div className="text-[10px]" style={{ color: C.muted }}>{e.category} · {formatShortDate(e.date)}{isAdmin ? ` · ${personName(e.profile_id)}` : ""}</div>
+              </div>
+              <Amount value={monthlyValue(e)} size="text-xs" tone={e.is_refund ? "green" : "rose"} />
+            </div>
+          ))}
+        </div>
+      )}
+      {incomeResults.length > 0 && (
+        <div className="mb-3">
+          <h5 className="text-[10px] uppercase tracking-wide mb-1.5" style={{ color: C.muted }}>Receitas</h5>
+          {incomeResults.map((i) => (
+            <div key={i.id} className="flex items-center justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.border}` }}>
+              <div className="min-w-0">
+                <div className="truncate" style={{ color: C.text }}>{i.description}</div>
+                <div className="text-[10px]" style={{ color: C.muted }}>{formatShortDate(i.income_date)}{isAdmin ? ` · ${personName(i.profile_id)}` : ""}</div>
+              </div>
+              <Amount value={i.amount} size="text-xs" tone="green" />
+            </div>
+          ))}
+        </div>
+      )}
+      {investmentResults.length > 0 && (
+        <div className="mb-3">
+          <h5 className="text-[10px] uppercase tracking-wide mb-1.5" style={{ color: C.muted }}>Caixinhas</h5>
+          {investmentResults.map((inv) => (
+            <div key={inv.id} className="flex items-center justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.border}` }}>
+              <span style={{ color: C.text }}>{inv.name}</span>
+              <Amount value={investmentBalance(inv.id, data.investmentTransactions || [])} size="text-xs" tone="green" />
+            </div>
+          ))}
+        </div>
+      )}
+      {investmentTxResults.length > 0 && (
+        <div>
+          <h5 className="text-[10px] uppercase tracking-wide mb-1.5" style={{ color: C.muted }}>Movimentações</h5>
+          {investmentTxResults.map((t) => (
+            <div key={t.id} className="flex items-center justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.border}` }}>
+              <div className="min-w-0">
+                <div className="truncate" style={{ color: C.text }}>{t.description}</div>
+                <div className="text-[10px]" style={{ color: C.muted }}>{formatShortDate(t.transaction_date)}</div>
+              </div>
+              <Amount value={t.amount} size="text-xs" tone={t.type === "deposit" ? "green" : "rose"} />
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -1118,9 +1210,6 @@ function IncomeForm({ profileId, onSave, onClose, initial }) {
 
 function IncomeSection({ profile, data, refresh }) {
   const now = currentMonthKey();
-  const [showForm, setShowForm] = useState(false);
-  const [showExpenseForm, setShowExpenseForm] = useState(false);
-  const myCards = accessibleCards(data, profile.id);
   const myIncomes = (data.incomes || []).filter((i) => i.profile_id === profile.id);
   const incomeMonth = myIncomes.filter((i) => isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
   const expenseMonth = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
@@ -1128,9 +1217,7 @@ function IncomeSection({ profile, data, refresh }) {
   const myInvestments = (data.investments || []).filter((inv) => inv.created_by === profile.id || inv.memberIds.includes(profile.id));
   const investedTotal = myInvestments.reduce((s, inv) => s + investmentBalance(inv.id, data.investmentTransactions || []), 0);
 
-  const handleSave = async (inc) => { await saveIncome(inc); await refresh(); };
   const handleDelete = async (inc) => { if (!window.confirm("Excluir esta receita?")) return; await deleteIncome(inc); await refresh(); };
-  const handleSaveExpense = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
 
   return (
     <Panel className="mb-4" style={{
@@ -1146,14 +1233,6 @@ function IncomeSection({ profile, data, refresh }) {
             <span className="text-[11px]" style={{ color: C.muted }}>saldo do mês</span>
             <div><Amount value={saldo} size="text-2xl" tone={saldo < 0 ? "rose" : "green"} /></div>
           </div>
-        </div>
-        <div className="flex gap-2 shrink-0">
-          <button onClick={() => setShowExpenseForm(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2" style={{ background: C.bgSoft, color: C.text, border: `1px solid ${C.border}` }}>
-            <Plus size={14} /> Gasto
-          </button>
-          <button onClick={() => setShowForm(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2" style={{ background: C.gold, color: "#1A1607" }}>
-            <Plus size={14} /> Receita
-          </button>
         </div>
       </div>
 
@@ -1192,12 +1271,6 @@ function IncomeSection({ profile, data, refresh }) {
           ))}
         </div>
       )}
-      {showForm && <IncomeForm profileId={profile.id} onSave={handleSave} onClose={() => setShowForm(false)} />}
-      {showExpenseForm && (
-        <ExpenseForm cards={myCards} userId={profile.id} onSave={handleSaveExpense} onClose={() => setShowExpenseForm(false)}
-          allProfiles={data.profiles} customCategories={data.customCategories} startWithNoCard creatorId={profile.id} canRefund={profile.role === "admin"}
-          onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />
-      )}
     </Panel>
   );
 }
@@ -1207,8 +1280,26 @@ function IncomeSection({ profile, data, refresh }) {
 /* ---------------------------------- INVESTMENTS ---------------------------------- */
 
 function investmentBalance(investmentId, transactions) {
-  return transactions.filter((t) => t.investment_id === investmentId)
-    .reduce((s, t) => s + (t.type === "deposit" ? t.amount : -t.amount), 0);
+  const now = currentMonthKey();
+  return transactions.filter((t) => t.investment_id === investmentId).reduce((s, t) => {
+    const sign = t.type === "deposit" ? 1 : -1;
+    if (t.is_recurring) {
+      const occurrences = Math.max(diffMonths(monthKeyFromDate(t.transaction_date), now) + 1, 0);
+      return s + sign * t.amount * occurrences;
+    }
+    return s + sign * t.amount;
+  }, 0);
+}
+function investmentBalanceUpTo(investmentId, transactions, monthKey) {
+  return transactions.filter((t) => t.investment_id === investmentId).reduce((s, t) => {
+    const sign = t.type === "deposit" ? 1 : -1;
+    const startKey = monthKeyFromDate(t.transaction_date);
+    if (t.is_recurring) {
+      if (startKey > monthKey) return s;
+      return s + sign * t.amount * (diffMonths(startKey, monthKey) + 1);
+    }
+    return startKey <= monthKey ? s + sign * t.amount : s;
+  }, 0);
 }
 function investmentMonthlyRate(inv, cdiAnnual) {
   if (!inv.cdi_percent || !cdiAnnual) return null;
@@ -1313,6 +1404,7 @@ function InvestmentTransactionForm({ investmentId, profileId, defaultType, onSav
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [description, setDescription] = useState("");
   const [receiptFile, setReceiptFile] = useState(null);
+  const [isRecurring, setIsRecurring] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -1322,7 +1414,7 @@ function InvestmentTransactionForm({ investmentId, profileId, defaultType, onSav
     try {
       let receiptUrl = null;
       if (receiptFile) receiptUrl = await uploadReceipt(receiptFile, profileId);
-      await onSave({ investmentId, profileId, type, amount: parseFloat(amount), date, description: description.trim(), receiptUrl });
+      await onSave({ investmentId, profileId, type, amount: parseFloat(amount), date, description: description.trim(), receiptUrl, isRecurring });
       onClose();
     } catch (e) {
       setSaving(false);
@@ -1345,6 +1437,12 @@ function InvestmentTransactionForm({ investmentId, profileId, defaultType, onSav
       <Field label="Valor (R$)"><CurrencyInput value={amount} onChange={setAmount} /></Field>
       <Field label="Data"><TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
       <Field label="Descrição (opcional)"><TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: Aporte mensal" /></Field>
+      {type === "deposit" && (
+        <label className="flex items-center gap-2 mb-3.5 text-xs" style={{ color: C.text }}>
+          <Switch checked={isRecurring} onChange={() => setIsRecurring((v) => !v)} />
+          <Repeat size={14} color={C.muted} /> Aporte recorrente (todo mês, a partir desta data)
+        </label>
+      )}
       <Field label="Comprovante (opcional)">
         <input type="file" accept="image/*,application/pdf" onChange={(e) => setReceiptFile(e.target.files?.[0] || null)} className="text-xs" style={{ color: C.muted }} />
       </Field>
@@ -1358,7 +1456,10 @@ function InvestmentCard({ inv, balance, transactions, profiles, viewerProfileId,
   const canManage = isAdmin || inv.created_by === viewerProfileId;
   const owners = profiles.filter((p) => inv.memberIds.includes(p.id) || p.id === inv.created_by).map((p) => firstName(p.name)).join(", ");
   const [showHistory, setShowHistory] = useState(false);
-  const myTx = transactions.filter((t) => t.investment_id === inv.id).sort((a, b) => b.transaction_date.localeCompare(a.transaction_date));
+  const [txPeriod, setTxPeriod] = useState("all");
+  const allTx = transactions.filter((t) => t.investment_id === inv.id).sort((a, b) => b.transaction_date.localeCompare(a.transaction_date));
+  const txMonthKeys = txPeriod === "all" ? null : monthKeysForPeriod(txPeriod, { start: "", end: "" });
+  const myTx = txMonthKeys ? allTx.filter((t) => txMonthKeys.includes(monthKeyFromDate(t.transaction_date))) : allTx;
 
   return (
     <Panel>
@@ -1404,10 +1505,19 @@ function InvestmentCard({ inv, balance, transactions, profiles, viewerProfileId,
         <Btn full variant="ghost" onClick={() => onMove(inv, "withdraw")}><ArrowDownCircle size={14} color={C.rose} /> Resgatar</Btn>
       </div>
       <button onClick={() => setShowHistory((v) => !v)} className="text-xs w-full text-center py-1.5" style={{ color: C.muted }}>
-        {showHistory ? "Esconder extrato ▲" : `Ver extrato (${myTx.length}) ▼`}
+        {showHistory ? "Esconder extrato ▲" : `Ver extrato (${allTx.length}) ▼`}
       </button>
       {showHistory && (
         <div className="mt-1 pt-2" style={{ borderTop: `1px solid ${C.border}` }}>
+          <div className="flex justify-end mb-2">
+            <Select value={txPeriod} onChange={(e) => setTxPeriod(e.target.value)} style={{ width: "auto", padding: "4px 8px", fontSize: 11 }}>
+              <option value="all">Tudo</option>
+              <option value="month">Este mês</option>
+              <option value="3m">Últimos 3 meses</option>
+              <option value="6m">Últimos 6 meses</option>
+              <option value="year">Este ano</option>
+            </Select>
+          </div>
           {myTx.length === 0 ? (
             <p className="text-xs py-2" style={{ color: C.muted }}>Nenhuma movimentação ainda.</p>
           ) : (
@@ -1417,6 +1527,7 @@ function InvestmentCard({ inv, balance, transactions, profiles, viewerProfileId,
                 <div className="min-w-0 flex-1">
                   <div className="text-xs truncate flex items-center gap-1.5" style={{ color: C.text }}>
                     {t.description || (t.type === "deposit" ? "Depósito" : "Resgate")}
+                    {t.is_recurring && <Repeat size={11} color={C.muted} />}
                     {t.receipt_url && <a href={t.receipt_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}><Paperclip size={11} color={C.muted} /></a>}
                   </div>
                   <div className="text-[10px]" style={{ color: C.muted }}>{formatShortDate(t.transaction_date)}</div>
@@ -1432,10 +1543,55 @@ function InvestmentCard({ inv, balance, transactions, profiles, viewerProfileId,
   );
 }
 
+function InvestmentSimulator({ cdiAnnual, onClose }) {
+  const [initial, setInitial] = useState(1000);
+  const [monthly, setMonthly] = useState(200);
+  const [cdiPercent, setCdiPercent] = useState(100);
+  const [months, setMonths] = useState(12);
+
+  const monthlyRate = investmentMonthlyRate({ cdi_percent: cdiPercent }, cdiAnnual);
+  const i = (monthlyRate || 0) / 100;
+  const n = Math.max(parseInt(months) || 0, 0);
+  const p = parseFloat(initial) || 0;
+  const a = parseFloat(monthly) || 0;
+  const futureValue = i > 0
+    ? p * Math.pow(1 + i, n) + a * ((Math.pow(1 + i, n) - 1) / i)
+    : p + a * n;
+  const totalContributed = p + a * n;
+  const earned = futureValue - totalContributed;
+
+  return (
+    <Modal title="Simulador de investimento" onClose={onClose}>
+      <Field label="Valor inicial (R$)"><CurrencyInput value={initial} onChange={setInitial} /></Field>
+      <Field label="Aporte mensal (R$)"><CurrencyInput value={monthly} onChange={setMonthly} /></Field>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="% do CDI"><TextInput type="number" value={cdiPercent} onChange={(e) => setCdiPercent(e.target.value)} /></Field>
+        <Field label="Meses"><TextInput type="number" value={months} onChange={(e) => setMonths(e.target.value)} /></Field>
+      </div>
+      {cdiAnnual == null && <p className="text-[11px] mb-3" style={{ color: C.muted }}>CDI atual indisponível agora — a simulação usa a última taxa conhecida, se houver.</p>}
+      <div className="rounded-xl p-4 mt-1" style={{ background: C.bgSoft, border: `1px solid ${C.border}` }}>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs" style={{ color: C.muted }}>valor final estimado</span>
+          <Amount value={futureValue} size="text-lg" tone="green" />
+        </div>
+        <div className="flex items-center justify-between text-xs mb-1">
+          <span style={{ color: C.muted }}>total aportado</span>
+          <span style={{ color: C.text }}>{brl(totalContributed)}</span>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span style={{ color: C.muted }}>rendimento gerado</span>
+          <span style={{ color: C.green }}>{brl(earned)}</span>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [moveTarget, setMoveTarget] = useState(null);
+  const [showSimulator, setShowSimulator] = useState(false);
   const { cdi, loading: cdiLoading } = useCurrentCDI();
 
   const myInvestments = isAdmin
@@ -1457,7 +1613,10 @@ function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
         <TrendingUp size={12} color={C.green} />
         {cdiLoading ? "Buscando CDI atual..." : cdi != null ? `CDI atual: ${cdi.toFixed(2)}% ao ano` : "Não foi possível buscar o CDI agora"}
       </div>
-      <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Nova caixinha</Btn>
+      <div className="flex gap-2">
+        <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Nova caixinha</Btn>
+        <Btn variant="ghost" onClick={() => setShowSimulator(true)}><Percent size={16} /></Btn>
+      </div>
       <div className="mt-4 space-y-3">
         {myInvestments.length === 0 && <Panel><EmptyState icon={<PiggyBank size={28} />} text="Nenhuma caixinha ainda. Crie a primeira." /></Panel>}
         {myInvestments.map((inv) => (
@@ -1468,6 +1627,7 @@ function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
             onDelete={handleDeleteInvestment} onDeleteTx={handleDeleteTx} />
         ))}
       </div>
+      {showSimulator && <InvestmentSimulator cdiAnnual={cdi} onClose={() => setShowSimulator(false)} />}
       {showForm && <InvestmentForm allProfiles={data.profiles} viewerProfileId={profile.id} initial={editing} onSave={handleSaveInvestment} onClose={() => setShowForm(false)} />}
       {moveTarget && (
         <InvestmentTransactionForm investmentId={moveTarget.inv.id} profileId={profile.id} defaultType={moveTarget.type}
@@ -1617,7 +1777,7 @@ async function deleteInvestment(inv) {
   if (error) throw error;
 }
 async function saveInvestmentTransaction(tx) {
-  const payload = { investment_id: tx.investmentId, profile_id: tx.profileId, type: tx.type, amount: tx.amount, transaction_date: tx.date, description: tx.description || null, receipt_url: tx.receiptUrl || null };
+  const payload = { investment_id: tx.investmentId, profile_id: tx.profileId, type: tx.type, amount: tx.amount, transaction_date: tx.date, description: tx.description || null, receipt_url: tx.receiptUrl || null, is_recurring: tx.isRecurring || false };
   const { error } = await supabase.from("investment_transactions").insert(payload);
   if (error) throw error;
 }
@@ -2331,6 +2491,7 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
   const [customRange, setCustomRange] = useState({ start: "", end: "" });
   const [selectedIds, setSelectedIds] = useState([]);
   const [compareMonth, setCompareMonth] = useState(prevMonth);
+  const [summaryYear, setSummaryYear] = useState(parseInt(now.split("-")[0]));
 
   const scopeProfiles = isAdmin
     ? (selectedIds.length === 0 ? data.profiles : data.profiles.filter((p) => selectedIds.includes(p.id)))
@@ -2349,6 +2510,24 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
     scopeProfiles.forEach((u) => { row[firstName(u.name)] = data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, mk)).reduce((s, e) => s + monthlyValue(e), 0); });
     return row;
   });
+
+  const scopeInvestments = (data.investments || []).filter((inv) => scopeIds.includes(inv.created_by) || scopeIds.some((id) => inv.memberIds.includes(id)));
+  const wealthEvolution = months.map((mk) => {
+    const total = scopeInvestments.reduce((s, inv) => s + investmentBalanceUpTo(inv.id, data.investmentTransactions || [], mk), 0);
+    return { month: monthLabel(mk), total };
+  });
+  const hasInvestments = scopeInvestments.length > 0;
+
+  const yearMonthKeys = (y) => Array.from({ length: 12 }, (_, i) => `${y}-${String(i + 1).padStart(2, "0")}`);
+  const yearTotals = (y) => {
+    const mks = yearMonthKeys(y);
+    const expense = mks.reduce((s, mk) => s + scopeIds.reduce((s2, pid) => s2 + data.expenses.filter((e) => e.profile_id === pid && isDueIn(e, mk)).reduce((s3, e) => s3 + monthlyValue(e), 0), 0), 0);
+    const income = mks.reduce((s, mk) => s + scopeIds.reduce((s2, pid) => s2 + (data.incomes || []).filter((i) => i.profile_id === pid && isIncomeDueIn(i, mk)).reduce((s3, i) => s3 + incomeMonthlyValue(i), 0), 0), 0);
+    return { expense, income, saldo: income - expense };
+  };
+  const currentYearTotals = yearTotals(summaryYear);
+  const prevYearTotals = yearTotals(summaryYear - 1);
+  const yearPctDiff = (curr, prev) => (prev > 0 ? ((curr - prev) / prev) * 100 : null);
 
   const heroLabel = period === "month" ? "Total do mês" : `Total (${periodPresetLabel(period)})`;
   const scopeLabel = !isAdmin ? "Seu relatório" : selectedIds.length === 0 ? "Todos" : scopeProfiles.map((p) => firstName(p.name)).join(" e ");
@@ -2398,6 +2577,45 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
           })}
         </div>
       )}
+
+      <Panel>
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-xs font-medium tracking-wide uppercase" style={{ color: C.muted }}>Resumo anual</h4>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setSummaryYear((y) => y - 1)}><ChevronRight size={14} color={C.muted} style={{ transform: "rotate(180deg)" }} /></button>
+            <span className="text-xs font-medium" style={{ color: C.text }}>{summaryYear}</span>
+            <button onClick={() => setSummaryYear((y) => Math.min(y + 1, parseInt(now.split("-")[0])))}><ChevronRight size={14} color={C.muted} /></button>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2.5">
+          <div className="rounded-xl px-3 py-2.5" style={{ background: C.bgSoft }}>
+            <div className="text-[10px] mb-1" style={{ color: C.muted }}>receita</div>
+            <Amount value={currentYearTotals.income} size="text-sm" tone="green" />
+          </div>
+          <div className="rounded-xl px-3 py-2.5" style={{ background: C.bgSoft }}>
+            <div className="text-[10px] mb-1" style={{ color: C.muted }}>despesa</div>
+            <Amount value={currentYearTotals.expense} size="text-sm" tone="rose" />
+          </div>
+          <div className="rounded-xl px-3 py-2.5" style={{ background: C.bgSoft }}>
+            <div className="text-[10px] mb-1" style={{ color: C.muted }}>saldo</div>
+            <Amount value={currentYearTotals.saldo} size="text-sm" tone={currentYearTotals.saldo < 0 ? "rose" : "green"} />
+          </div>
+        </div>
+        {prevYearTotals.expense + prevYearTotals.income > 0 && (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-[11px]" style={{ color: C.muted }}>
+            {(() => {
+              const dIncome = yearPctDiff(currentYearTotals.income, prevYearTotals.income);
+              const dExpense = yearPctDiff(currentYearTotals.expense, prevYearTotals.expense);
+              return (
+                <>
+                  {dIncome != null && <span>receita {dIncome >= 0 ? "▲" : "▼"} {Math.abs(dIncome).toFixed(0)}% vs {summaryYear - 1}</span>}
+                  {dExpense != null && <span>despesa {dExpense >= 0 ? "▲" : "▼"} {Math.abs(dExpense).toFixed(0)}% vs {summaryYear - 1}</span>}
+                </>
+              );
+            })()}
+          </div>
+        )}
+      </Panel>
 
       <Panel>
         <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Por categoria</h4>
@@ -2486,16 +2704,47 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
           </div>
         )}
       </Panel>
+
+      {hasInvestments && (
+        <Panel>
+          <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Evolução do patrimônio investido</h4>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={wealthEvolution}>
+              <XAxis dataKey="month" stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} />
+              <YAxis stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} tickFormatter={compactNumber} width={38} />
+              <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} />
+              <Line type="monotone" dataKey="total" stroke={C.green} strokeWidth={2.5} dot={{ r: 3, fill: C.green }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </Panel>
+      )}
     </div>
   );
 }
 
-function FloatingAddButton({ onClick }) {
+function FloatingAddButton({ onAddExpense, onAddIncome }) {
+  const [open, setOpen] = useState(false);
   return (
-    <button onClick={onClick} className="fixed z-40 rounded-full flex items-center justify-center transition-all active:scale-95"
-      style={{ right: 18, bottom: "calc(78px + env(safe-area-inset-bottom, 0px))", width: 54, height: 54, background: HERO_GRADIENT, boxShadow: "0 10px 24px rgba(76,29,149,0.45)" }}>
-      <Zap size={22} color="#fff" />
-    </button>
+    <div className="fixed z-40 flex flex-col items-end gap-2.5" style={{ right: 18, bottom: "calc(78px + env(safe-area-inset-bottom, 0px))" }}>
+      {open && (
+        <>
+          <button onClick={() => { setOpen(false); onAddIncome(); }} className="flex items-center gap-2 pl-4 pr-3 py-2.5 rounded-full text-sm font-medium transition-all active:scale-95"
+            style={{ background: C.surfaceAlt, color: C.text, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
+            Receita <span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: C.gold, color: "#1A1607" }}><Plus size={15} /></span>
+          </button>
+          <button onClick={() => { setOpen(false); onAddExpense(); }} className="flex items-center gap-2 pl-4 pr-3 py-2.5 rounded-full text-sm font-medium transition-all active:scale-95"
+            style={{ background: C.surfaceAlt, color: C.text, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
+            Gasto <span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: C.bgSoft, border: `1px solid ${C.border}` }}><Plus size={15} /></span>
+          </button>
+        </>
+      )}
+      <button onClick={() => setOpen((v) => !v)} className="rounded-full flex items-center justify-center transition-all active:scale-95"
+        style={{ width: 54, height: 54, background: HERO_GRADIENT, boxShadow: "0 10px 24px rgba(76,29,149,0.45)", transform: open ? "rotate(45deg)" : "none" }}>
+        <Zap size={22} color="#fff" style={{ display: open ? "none" : "block" }} />
+        <Plus size={24} color="#fff" style={{ display: open ? "block" : "none" }} />
+      </button>
+      {open && <div className="fixed inset-0 -z-10" onClick={() => setOpen(false)} />}
+    </div>
   );
 }
 
@@ -2567,6 +2816,7 @@ function usePersistentTab(key, defaultValue) {
 function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = usePersistentTab("tab-member", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [showQuickIncome, setShowQuickIncome] = useState(false);
   const myCards = accessibleCards(data, profile.id);
   useBillAlerts(myCards, data.expenses);
   useBudgetAlerts(profile, data);
@@ -2577,16 +2827,18 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
     { id: "investments", label: "Invest.", icon: <PiggyBank size={18} /> },
   ];
   const handleQuickSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
+  const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
   return (
     <>
-      <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} />
+      <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} />
       {tab === "overview" && <MemberOverview profile={profile} data={data} refresh={refresh} />}
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
       {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
       {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
-      <FloatingAddButton onClick={() => setShowQuickAdd(true)} />
+      <FloatingAddButton onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
       {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id}
         customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
+      {showQuickIncome && <IncomeForm profileId={profile.id} onSave={handleQuickIncomeSave} onClose={() => setShowQuickIncome(false)} />}
       <BottomNav tabs={tabs} tab={tab} setTab={setTab} />
     </>
   );
@@ -2595,6 +2847,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
 function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = usePersistentTab("tab-admin", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [showQuickIncome, setShowQuickIncome] = useState(false);
   useBillAlerts(data.cards, data.expenses);
   useBudgetAlerts(profile, data);
   const tabs = [
@@ -2604,16 +2857,18 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
     { id: "investments", label: "Invest.", icon: <PiggyBank size={18} /> },
   ];
   const handleQuickSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
+  const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
   return (
     <>
-      <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} />
+      <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} />
       {tab === "overview" && <AdminOverview profile={profile} data={data} refresh={refresh} />}
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
       {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
       {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
-      <FloatingAddButton onClick={() => setShowQuickAdd(true)} />
+      <FloatingAddButton onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
       {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id} canRefund
         customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
+      {showQuickIncome && <IncomeForm profileId={profile.id} onSave={handleQuickIncomeSave} onClose={() => setShowQuickIncome(false)} />}
       <BottomNav tabs={tabs} tab={tab} setTab={setTab} />
     </>
   );
