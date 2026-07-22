@@ -699,9 +699,11 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
       };
       let toSave;
       if (splitEnabled && splitWith) {
+        const amountAPrecise = Math.round(amountA * 1000) / 1000;
+        const amountBPrecise = Math.round((totalNum - amountAPrecise) * 1000) / 1000;
         toSave = [
-          { ...base, id: initial?.id, userId: selectedUserId, totalAmount: amountA, receiptUrl },
-          { ...base, userId: splitWith, totalAmount: amountB, receiptUrl: null },
+          { ...base, id: initial?.id, userId: selectedUserId, totalAmount: amountAPrecise, receiptUrl },
+          { ...base, userId: splitWith, totalAmount: amountBPrecise, receiptUrl: null },
         ];
       } else {
         toSave = [{ ...base, id: initial?.id, userId: selectedUserId, totalAmount: totalNum, receiptUrl }];
@@ -736,7 +738,7 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
         )}
         <Field label="Cartão">
           <Select value={cardId} onChange={(e) => setCardId(e.target.value)}>
-            <option value="">Sem cartão (dinheiro/Pix)</option>
+            <option value="">Dinheiro/Pix</option>
             {cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
         </Field>
@@ -955,6 +957,12 @@ function CardWidget({ card, used, nextAmount }) {
   );
 }
 
+function formatShortDate(dateStr) {
+  if (!dateStr) return "";
+  const [, m, d] = dateStr.split("-");
+  return `${d}/${m}`;
+}
+
 /* ---------------------------------- EXPENSE ROW ---------------------------------- */
 
 function ExpenseRow({ exp, cardName, personName, onEdit, onDelete, showPerson, selectable, selected, onToggleSelect }) {
@@ -972,7 +980,7 @@ function ExpenseRow({ exp, cardName, personName, onEdit, onDelete, showPerson, s
           {exp.receipt_url && <a href={exp.receipt_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}><Paperclip size={11} color={C.muted} /></a>}
         </div>
         <div className="text-[11px] truncate" style={{ color: C.muted }}>
-          {exp.category} · {cardName}{showPerson ? ` · ${personName}` : ""}
+          {formatShortDate(exp.purchase_date)} · {exp.category} · {cardName}{showPerson ? ` · ${personName}` : ""}
           {!exp.is_recurring && exp.installments > 1 && ` · ${exp.installments}x`}
           {exp.is_recurring && " · recorrente"}
         </div>
@@ -1418,14 +1426,22 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
       {isAdmin && (
         <div className="flex gap-2 mb-3">
-          <Select value={filterPerson} onChange={(e) => setFilterPerson(e.target.value)} className="flex-1">
-            <option value="all">Todas as pessoas</option>
-            {data.profiles.map((u) => <option key={u.id} value={u.id}>{firstName(u.name)}</option>)}
-          </Select>
-          <Select value={filterCard} onChange={(e) => setFilterCard(e.target.value)} className="flex-1">
-            <option value="all">Todos os cartões</option>
-            {data.cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </Select>
+          <div className="flex-1 min-w-0">
+            <Field label="Pessoa">
+              <Select value={filterPerson} onChange={(e) => setFilterPerson(e.target.value)}>
+                <option value="all">Todas</option>
+                {data.profiles.map((u) => <option key={u.id} value={u.id}>{firstName(u.name)}</option>)}
+              </Select>
+            </Field>
+          </div>
+          <div className="flex-1 min-w-0">
+            <Field label="Cartão">
+              <Select value={filterCard} onChange={(e) => setFilterCard(e.target.value)}>
+                <option value="all">Todos</option>
+                {data.cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </Select>
+            </Field>
+          </div>
         </div>
       )}
 
@@ -1695,7 +1711,14 @@ function AdminOverview({ profile, data, refresh }) {
   const adminIncomeMonth = (data.incomes || []).filter((i) => i.profile_id === profile.id && isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
   const adminExpenseMonth = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
   const [showShareMenu, setShowShareMenu] = useState(false);
+  const [shareSelected, setShareSelected] = useState([]);
 
+  const buildHeading = (ids) => {
+    if (ids.length === 0 || ids.length === data.profiles.length) return "Resumo geral";
+    const names = data.profiles.filter((p) => ids.includes(p.id)).map((p) => firstName(p.name));
+    if (ids.length === 1) return ids[0] === profile.id ? `Olá, ${names[0]}` : `Resumo de ${names[0]}`;
+    return `Resumo de ${names.join(" e ")}`;
+  };
   const shareScope = (scopeIds, heading) => {
     setShowShareMenu(false);
     const dueNow = data.expenses.filter((e) => isDueIn(e, now) && (!scopeIds || scopeIds.includes(e.profile_id)));
@@ -1706,30 +1729,29 @@ function AdminOverview({ profile, data, refresh }) {
     const scopedIncome = (data.incomes || []).filter((i) => isIncomeDueIn(i, now) && (!scopeIds || scopeIds.includes(i.profile_id))).reduce((s, i) => s + incomeMonthlyValue(i), 0);
     shareSummaryImage({ heading, monthLabelStr: monthLabel(now), total, saldo: scopedIncome - total, categories });
   };
-  const others = data.profiles.filter((p) => p.id !== profile.id);
+  const toggleShare = (id) => setShareSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
       <div className="flex items-center justify-between">
         <ScreenHeader title="Visão geral" subtitle="Este mês" />
         <div className="relative shrink-0 mb-4">
-          <button onClick={() => setShowShareMenu((v) => !v)} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.border}` }}>
+          <button onClick={() => { setShowShareMenu((v) => !v); setShareSelected([]); }} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.border}` }}>
             <Share2 size={15} color={C.gold} />
           </button>
           {showShareMenu && (
-            <div className="absolute right-0 mt-1.5 rounded-xl overflow-hidden z-20" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
-              <button onClick={() => shareScope(null, "Resumo geral")} className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text }}>Todos</button>
-              <button onClick={() => shareScope([profile.id], `Olá, ${firstName(profile.name)}`)} className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>Só eu</button>
-              {others.map((p) => (
-                <button key={`only-${p.id}`} onClick={() => shareScope([p.id], `Resumo de ${firstName(p.name)}`)} className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>
-                  Só {firstName(p.name)}
-                </button>
-              ))}
-              {others.map((p) => (
-                <button key={`with-${p.id}`} onClick={() => shareScope([profile.id, p.id], `Resumo de ${firstName(profile.name)} e ${firstName(p.name)}`)} className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>
-                  Eu e {firstName(p.name)}
-                </button>
-              ))}
+            <div className="absolute right-0 mt-1.5 rounded-xl p-3 z-20" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow, width: 200 }}>
+              <p className="text-[10px] font-semibold tracking-wide uppercase mb-2" style={{ color: C.muted }}>Incluir no resumo</p>
+              <div className="space-y-2 mb-3">
+                {data.profiles.map((p) => (
+                  <label key={p.id} className="flex items-center gap-2 text-xs" style={{ color: C.text }}>
+                    <Switch checked={shareSelected.includes(p.id)} onChange={() => toggleShare(p.id)} />
+                    {p.id === profile.id ? `${firstName(p.name)} (eu)` : firstName(p.name)}
+                  </label>
+                ))}
+              </div>
+              <p className="text-[10px] mb-2" style={{ color: C.muted }}>{shareSelected.length === 0 ? "Ninguém marcado = todos" : `${shareSelected.length} selecionado(s)`}</p>
+              <Btn full onClick={() => shareScope(shareSelected.length ? shareSelected : null, buildHeading(shareSelected))}>Gerar</Btn>
             </div>
           )}
         </div>
@@ -1903,7 +1925,11 @@ function ReportsScreen({ profile, data, isAdmin }) {
             {data.profiles.map((p) => {
               const active = selectedIds.includes(p.id);
               return (
-                <button key={p.id} onClick={() => setSelectedIds((prev) => prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id])}
+                <button key={p.id} onClick={() => setSelectedIds((prev) => {
+                  if (prev.includes(p.id)) return prev.filter((x) => x !== p.id);
+                  const next = [...prev, p.id];
+                  return next.length > 2 ? next.slice(1) : next;
+                })}
                   className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
                   style={{ background: active ? C.gold : "transparent", color: active ? "#1A1607" : C.muted, border: `1px solid ${active ? C.gold : C.border}` }}>
                   {firstName(p.name)}
@@ -2043,16 +2069,27 @@ function useBillAlerts(cards, expenses) {
   }, [cards, expenses]);
 }
 
+function usePersistentTab(key, defaultValue) {
+  const [tab, setTabState] = useState(() => {
+    try { return localStorage.getItem(key) || defaultValue; } catch { return defaultValue; }
+  });
+  const setTab = (t) => {
+    setTabState(t);
+    try { localStorage.setItem(key, t); } catch {}
+  };
+  return [tab, setTab];
+}
+
 /* ---------------------------------- DASHBOARDS ---------------------------------- */
 
 function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = usePersistentTab("tab-member", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const myCards = data.cards.filter((c) => c.memberIds.includes(profile.id));
   useBillAlerts(myCards, data.expenses);
   const tabs = [
-    { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(myCards, data.expenses) },
+    { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
     { id: "goals", label: "Metas", icon: <Target size={18} /> },
   ];
@@ -2073,13 +2110,13 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
 }
 
 function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = usePersistentTab("tab-admin", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   useBillAlerts(data.cards, data.expenses);
   const tabs = [
-    { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "cards", label: "Cartões", icon: <CreditCard size={18} /> },
     { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(data.cards, data.expenses) },
+    { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
     { id: "goals", label: "Metas", icon: <Target size={18} /> },
   ];
