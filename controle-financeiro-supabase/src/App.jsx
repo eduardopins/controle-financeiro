@@ -81,6 +81,15 @@ function addMonthsToKey(key, n) {
 }
 const last6Months = () => { const now = currentMonthKey(); return Array.from({ length: 6 }, (_, i) => addMonthsToKey(now, i - 5)); };
 
+// Compras feitas depois do dia de fechamento do cartão caem na fatura do mês seguinte
+// (o mês corrente já fechou); no dia do fechamento ou antes, ainda entram no mês atual.
+function invoiceMonthForPurchase(dateStr, closingDay) {
+  const calendarMonth = monthKeyFromDate(dateStr);
+  if (!closingDay) return calendarMonth;
+  const day = parseInt(dateStr.split("-")[2], 10);
+  return day > closingDay ? addMonthsToKey(calendarMonth, 1) : calendarMonth;
+}
+
 function isDueIn(exp, monthKey) {
   const idx = diffMonths(exp.first_month, monthKey);
   if (exp.is_recurring) return idx >= 0;
@@ -957,7 +966,7 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
       let receiptUrl = existingReceipt;
       if (receiptFile) receiptUrl = await uploadReceipt(receiptFile, selectedUserId);
       const base = {
-        cardId, category, description: description.trim(), date, firstMonth: monthKeyFromDate(date),
+        cardId, category, description: description.trim(), date, firstMonth: invoiceMonthForPurchase(date, cards.find((c) => c.id === cardId)?.closing_day),
         installments: isRecurring ? 1 : Math.max(1, parseInt(installments) || 1), isRecurring, isRefund, createdBy: creatorId || userId,
       };
       let toSave;
@@ -2052,9 +2061,10 @@ function ImportCSVModal({ cards, userId, onImport, onClose }) {
   const confirmImport = async () => {
     setSaving(true); setErr("");
     try {
+      const closingDay = cards.find((c) => c.id === cardId)?.closing_day;
       const toImport = rows.filter((r) => r.include).map((r) => ({
         cardId, userId, category: r.category, description: r.description,
-        totalAmount: r.amount, date: r.date, firstMonth: monthKeyFromDate(r.date),
+        totalAmount: r.amount, date: r.date, firstMonth: invoiceMonthForPurchase(r.date, closingDay),
         installments: 1, isRecurring: false, receiptUrl: null,
       }));
       await onImport(toImport);
