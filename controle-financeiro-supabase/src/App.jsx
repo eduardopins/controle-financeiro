@@ -30,14 +30,14 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--gold); outline-
 .theme-dark {
   --bg: #0A0C18; --bg-soft: #10132A; --surface: #151933; --surface-alt: #1C2140;
   --border: rgba(184,147,90,0.14); --border-strong: rgba(184,147,90,0.34);
-  --gold: #B8935A; --gold-soft: #D8B885; --gold-deep: #4A2E12; --text: #F4F1E9; --muted: #8B92AC;
+  --gold: #6E7EB0; --gold-soft: #95A4D6; --gold-deep: #2E3552; --gold-contrast: #FFFFFF; --text: #F4F1E9; --muted: #8B92AC;
   --green: #5FA88C; --rose: #C97575; --amber: #CBA05A;
   --shadow: 0 10px 34px rgba(0,0,0,0.38);
 }
 .theme-light {
   --bg: #F7F4EE; --bg-soft: #FFFFFF; --surface: #FFFFFF; --surface-alt: #F1EBDD;
   --border: rgba(122,95,45,0.16); --border-strong: rgba(122,95,45,0.32);
-  --gold: #8A6A34; --gold-soft: #6E5427; --gold-deep: #2E2110; --text: #201D17; --muted: #726A59;
+  --gold: #4C5A8C; --gold-soft: #37426A; --gold-deep: #232A45; --gold-contrast: #FFFFFF; --text: #201D17; --muted: #726A59;
   --green: #2F7A5C; --rose: #A8504F; --amber: #8A6A2A;
   --shadow: 0 10px 28px rgba(70,55,25,0.10);
 }
@@ -218,24 +218,26 @@ function useTheme() {
 }
 
 const ACCENTS = {
-  gold: { dark: ["#B8935A", "#D8B885"], light: ["#8A6A34", "#6E5427"] },
-  emerald: { dark: ["#3E9B7F", "#6FC7AC"], light: ["#2C7A5F", "#1F5C47"] },
-  terracotta: { dark: ["#C1694A", "#E0916D"], light: ["#A85539", "#7C3C27"] },
-  indigo: { dark: ["#6E7EB0", "#95A4D6"], light: ["#4C5A8C", "#37426A"] },
-  slate: { dark: ["#5C8A8C", "#8AB8B9"], light: ["#3F6B6D", "#2D4F50"] },
+  gold: { dark: ["#B8935A", "#D8B885"], light: ["#8A6A34", "#6E5427"], text: "#1A1607" },
+  emerald: { dark: ["#3E9B7F", "#6FC7AC"], light: ["#2C7A5F", "#1F5C47"], text: "#FFFFFF" },
+  terracotta: { dark: ["#C1694A", "#E0916D"], light: ["#A85539", "#7C3C27"], text: "#FFFFFF" },
+  indigo: { dark: ["#6E7EB0", "#95A4D6"], light: ["#4C5A8C", "#37426A"], text: "#FFFFFF" },
+  slate: { dark: ["#5C8A8C", "#8AB8B9"], light: ["#3F6B6D", "#2D4F50"], text: "#FFFFFF" },
 };
 const ACCENT_LABELS = { gold: "Dourado", emerald: "Esmeralda", terracotta: "Terracota", indigo: "Índigo", slate: "Petróleo" };
 
 function useAccent(theme) {
   const [accent, setAccent] = useState(() => {
     const saved = typeof window !== "undefined" && localStorage.getItem("accent");
-    return saved && ACCENTS[saved] ? saved : "gold";
+    return saved && ACCENTS[saved] ? saved : "indigo";
   });
   useEffect(() => {
-    const [c1, c2] = (ACCENTS[accent] || ACCENTS.gold)[theme];
+    const def = ACCENTS[accent] || ACCENTS.indigo;
+    const [c1, c2] = def[theme];
     document.documentElement.style.setProperty("--gold", c1);
     document.documentElement.style.setProperty("--gold-soft", c2);
     document.documentElement.style.setProperty("--gold-deep", shade(c1, -0.55));
+    document.documentElement.style.setProperty("--gold-contrast", def.text);
     localStorage.setItem("accent", accent);
   }, [accent, theme]);
   return [accent, setAccent];
@@ -330,7 +332,7 @@ function Panel({ children, style, className = "" }) {
 function Btn({ children, onClick, variant = "primary", type = "button", full, disabled }) {
   const base = "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition-all active:scale-[0.97] disabled:opacity-50";
   const styles = {
-    primary: { background: C.gold, color: "#1A1607" },
+    primary: { background: C.gold, color: "var(--gold-contrast)" },
     ghost: { background: "transparent", color: C.text, border: `1px solid ${C.border}` },
     danger: { background: "transparent", color: C.rose, border: `1px solid rgba(221,124,134,0.35)` },
   };
@@ -420,7 +422,7 @@ function DateInput({ value, onChange, placeholder }) {
                   className="aspect-square rounded-lg text-xs flex items-center justify-center transition-all"
                   style={{
                     background: selected ? C.gold : "transparent",
-                    color: c.muted ? C.border : selected ? "#1A1607" : (isToday(c.day) ? C.gold : C.text),
+                    color: c.muted ? C.border : selected ? "var(--gold-contrast)" : (isToday(c.day) ? C.gold : C.text),
                     border: isToday(c.day) && !selected ? `1px solid ${C.gold}` : "1px solid transparent",
                     cursor: c.muted ? "default" : "pointer",
                   }}>
@@ -691,7 +693,7 @@ function AccentPicker({ accent, onChange }) {
               return (
                 <button key={key} onClick={() => { onChange(key); setOpen(false); }}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all"
-                  style={{ background: active ? C.gold : C.bgSoft, color: active ? "#1A1607" : C.text, border: `1px solid ${active ? C.gold : C.border}` }}>
+                  style={{ background: active ? C.gold : C.bgSoft, color: active ? "var(--gold-contrast)" : C.text, border: `1px solid ${active ? C.gold : C.border}` }}>
                   <span className="w-4 h-4 rounded-full shrink-0" style={{ background: c1 }} />
                   {ACCENT_LABELS[key]}
                   {active && <Check size={15} className="ml-auto" />}
@@ -2135,12 +2137,12 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
       <div className="flex gap-2 mb-3">
         <button onClick={() => setViewMode("faturas")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
-          style={{ background: viewMode === "faturas" ? C.gold : C.surface, color: viewMode === "faturas" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "faturas" ? C.gold : C.border}` }}>
+          style={{ background: viewMode === "faturas" ? C.gold : C.surface, color: viewMode === "faturas" ? "var(--gold-contrast)" : C.muted, border: `1px solid ${viewMode === "faturas" ? C.gold : C.border}` }}>
           <ListChecks size={15} /> Faturas
         </button>
         {isAdmin && (
           <button onClick={() => setViewMode("cards")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
-            style={{ background: viewMode === "cards" ? C.gold : C.surface, color: viewMode === "cards" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "cards" ? C.gold : C.border}` }}>
+            style={{ background: viewMode === "cards" ? C.gold : C.surface, color: viewMode === "cards" ? "var(--gold-contrast)" : C.muted, border: `1px solid ${viewMode === "cards" ? C.gold : C.border}` }}>
             <CreditCard size={15} /> Cartões
           </button>
         )}
@@ -2245,7 +2247,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
                   const tone = status?.tone === "green" ? C.green : status?.tone === "amber" ? C.amber : C.muted;
                   return (
                     <button key={mk} ref={(el) => { monthRefs.current[mk] = el; }} onClick={() => setSelectedMonth(mk)} className="shrink-0 px-3.5 py-2 rounded-xl text-xs font-medium transition-all capitalize"
-                      style={{ background: active ? C.gold : "transparent", color: active ? "#1A1607" : tone, border: `1px solid ${active ? C.gold : C.border}` }}>
+                      style={{ background: active ? C.gold : "transparent", color: active ? "var(--gold-contrast)" : tone, border: `1px solid ${active ? C.gold : C.border}` }}>
                       {monthLabel(mk)}
                     </button>
                   );
@@ -2571,7 +2573,7 @@ function PersonFilter({ profiles, selectedIds, onChange }) {
     <div className="flex gap-1.5 flex-wrap mb-3">
       <button onClick={() => onChange([])}
         className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
-        style={{ background: allSelected ? C.gold : "transparent", color: allSelected ? "#1A1607" : C.muted, border: `1px solid ${allSelected ? C.gold : C.border}` }}>
+        style={{ background: allSelected ? C.gold : "transparent", color: allSelected ? "var(--gold-contrast)" : C.muted, border: `1px solid ${allSelected ? C.gold : C.border}` }}>
         Todos
       </button>
       {profiles.map((p) => {
@@ -2579,7 +2581,7 @@ function PersonFilter({ profiles, selectedIds, onChange }) {
         return (
           <button key={p.id} onClick={() => toggle(p.id)}
             className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
-            style={{ background: active ? C.gold : "transparent", color: active ? "#1A1607" : C.muted, border: `1px solid ${active ? C.gold : C.border}` }}>
+            style={{ background: active ? C.gold : "transparent", color: active ? "var(--gold-contrast)" : C.muted, border: `1px solid ${active ? C.gold : C.border}` }}>
             {firstName(p.name)}
           </button>
         );
@@ -2647,7 +2649,7 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
           <button onClick={() => setView("charts")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.surface, color: C.muted, border: `1px solid ${C.border}` }}>
             <PieIcon size={15} /> Gráficos
           </button>
-          <button onClick={() => setView("goals")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.gold, color: "#1A1607", border: `1px solid ${C.gold}` }}>
+          <button onClick={() => setView("goals")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.gold, color: "var(--gold-contrast)", border: `1px solid ${C.gold}` }}>
             <Target size={15} /> Metas
           </button>
         </div>
@@ -2660,7 +2662,7 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28 space-y-4">
       <ScreenHeader title="Relatórios" subtitle={isAdmin ? `Panorama financeiro · ${scopeLabel}` : "Seu panorama financeiro"} />
       <div className="flex gap-2">
-        <button onClick={() => setView("charts")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.gold, color: "#1A1607", border: `1px solid ${C.gold}` }}>
+        <button onClick={() => setView("charts")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.gold, color: "var(--gold-contrast)", border: `1px solid ${C.gold}` }}>
           <PieIcon size={15} /> Gráficos
         </button>
         <button onClick={() => setView("goals")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.surface, color: C.muted, border: `1px solid ${C.border}` }}>
@@ -2694,18 +2696,18 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
             <button onClick={() => setSummaryYear((y) => Math.min(y + 1, parseInt(now.split("-")[0])))}><ChevronRight size={14} color={C.muted} /></button>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-2.5">
-          <div className="rounded-xl px-3 py-2.5" style={{ background: C.bgSoft }}>
-            <div className="text-[10px] mb-1" style={{ color: C.muted }}>receita</div>
-            <Amount value={currentYearTotals.income} size="text-sm" tone="green" />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div className="rounded-xl px-3.5 py-3 flex items-center justify-between sm:block" style={{ background: C.bgSoft }}>
+            <div className="text-[11px] sm:mb-1" style={{ color: C.muted }}>receita</div>
+            <Amount value={currentYearTotals.income} size="text-base sm:text-sm" tone="green" />
           </div>
-          <div className="rounded-xl px-3 py-2.5" style={{ background: C.bgSoft }}>
-            <div className="text-[10px] mb-1" style={{ color: C.muted }}>despesa</div>
-            <Amount value={currentYearTotals.expense} size="text-sm" tone="rose" />
+          <div className="rounded-xl px-3.5 py-3 flex items-center justify-between sm:block" style={{ background: C.bgSoft }}>
+            <div className="text-[11px] sm:mb-1" style={{ color: C.muted }}>despesa</div>
+            <Amount value={currentYearTotals.expense} size="text-base sm:text-sm" tone="rose" />
           </div>
-          <div className="rounded-xl px-3 py-2.5" style={{ background: C.bgSoft }}>
-            <div className="text-[10px] mb-1" style={{ color: C.muted }}>saldo</div>
-            <Amount value={currentYearTotals.saldo} size="text-sm" tone={currentYearTotals.saldo < 0 ? "rose" : "green"} />
+          <div className="rounded-xl px-3.5 py-3 flex items-center justify-between sm:block" style={{ background: C.bgSoft }}>
+            <div className="text-[11px] sm:mb-1" style={{ color: C.muted }}>saldo</div>
+            <Amount value={currentYearTotals.saldo} size="text-base sm:text-sm" tone={currentYearTotals.saldo < 0 ? "rose" : "green"} />
           </div>
         </div>
         {prevYearTotals.expense + prevYearTotals.income > 0 && (
@@ -2837,7 +2839,7 @@ function FloatingAddButton({ onAddExpense, onAddIncome }) {
         <>
           <button onClick={() => { setOpen(false); onAddIncome(); }} className="flex items-center gap-2 pl-4 pr-3 py-2.5 rounded-full text-sm font-medium transition-all active:scale-95"
             style={{ background: C.surfaceAlt, color: C.text, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
-            Receita <span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: C.gold, color: "#1A1607" }}><Plus size={15} /></span>
+            Receita <span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: C.gold, color: "var(--gold-contrast)" }}><Plus size={15} /></span>
           </button>
           <button onClick={() => { setOpen(false); onAddExpense(); }} className="flex items-center gap-2 pl-4 pr-3 py-2.5 rounded-full text-sm font-medium transition-all active:scale-95"
             style={{ background: C.surfaceAlt, color: C.text, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
