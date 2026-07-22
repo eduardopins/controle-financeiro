@@ -1655,6 +1655,7 @@ function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
   const [editing, setEditing] = useState(null);
   const [moveTarget, setMoveTarget] = useState(null);
   const [showSimulator, setShowSimulator] = useState(false);
+  const [showAddMenu, setShowAddMenu] = useState(false);
   const { cdi, loading: cdiLoading } = useCurrentCDI();
 
   const myInvestments = isAdmin
@@ -1676,9 +1677,22 @@ function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
         <TrendingUp size={12} color={C.green} />
         {cdiLoading ? "Buscando CDI atual..." : cdi != null ? `CDI atual: ${cdi.toFixed(2)}% ao ano` : "Não foi possível buscar o CDI agora"}
       </div>
-      <div className="flex gap-2">
-        <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Nova caixinha</Btn>
-        <Btn variant="ghost" onClick={() => setShowSimulator(true)}><Percent size={16} /></Btn>
+      <div className="relative">
+        <Btn full onClick={() => setShowAddMenu((v) => !v)}><Plus size={16} /> Adicionar</Btn>
+        {showAddMenu && (
+          <div className="absolute left-0 right-0 mt-1.5 rounded-xl overflow-hidden z-20" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
+            <button onClick={() => { setEditing(null); setShowForm(true); setShowAddMenu(false); }}
+              className="flex items-center gap-2.5 w-full text-left px-4 py-3 text-sm" style={{ color: C.text, borderBottom: `1px solid ${C.border}` }}>
+              <PiggyBank size={15} color={C.green} /> Nova caixinha
+              <span className="text-[10.5px] ml-auto" style={{ color: C.muted }}>investimento real</span>
+            </button>
+            <button onClick={() => { setShowSimulator(true); setShowAddMenu(false); }}
+              className="flex items-center gap-2.5 w-full text-left px-4 py-3 text-sm" style={{ color: C.text }}>
+              <Percent size={15} color={C.gold} /> Simulador
+              <span className="text-[10.5px] ml-auto" style={{ color: C.muted }}>só calcular</span>
+            </button>
+          </div>
+        )}
       </div>
       <div className="mt-4 space-y-3">
         {myInvestments.length === 0 && <Panel><EmptyState icon={<PiggyBank size={28} />} text="Nenhuma caixinha ainda. Crie a primeira." /></Panel>}
@@ -2078,18 +2092,18 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16">
       <ScreenHeader title={viewMode === "cards" ? "Cartões" : "Faturas"} subtitle={viewMode === "cards" ? "Limites, vencimentos e acessos" : (isAdmin ? "Todos os lançamentos" : "Seus lançamentos")} />
 
-      <div className="flex gap-2 mb-3">
-        <button onClick={() => setViewMode("faturas")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
-          style={{ background: viewMode === "faturas" ? C.gold : C.surface, color: viewMode === "faturas" ? "var(--gold-contrast)" : C.muted, border: `1px solid ${viewMode === "faturas" ? C.gold : C.border}` }}>
-          <ListChecks size={15} /> Faturas
-        </button>
-        {isAdmin && (
+      {isAdmin && (
+        <div className="flex gap-2 mb-3">
+          <button onClick={() => setViewMode("faturas")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
+            style={{ background: viewMode === "faturas" ? C.gold : C.surface, color: viewMode === "faturas" ? "var(--gold-contrast)" : C.muted, border: `1px solid ${viewMode === "faturas" ? C.gold : C.border}` }}>
+            <ListChecks size={15} /> Faturas
+          </button>
           <button onClick={() => setViewMode("cards")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
             style={{ background: viewMode === "cards" ? C.gold : C.surface, color: viewMode === "cards" ? "var(--gold-contrast)" : C.muted, border: `1px solid ${viewMode === "cards" ? C.gold : C.border}` }}>
             <CreditCard size={15} /> Cartões
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {viewMode === "cards" ? (
         <AdminCards data={data} refresh={refresh} embedded />
