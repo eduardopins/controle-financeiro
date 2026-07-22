@@ -7,7 +7,7 @@ import {
   CreditCard, Plus, Pencil, Trash2, LogOut, LayoutGrid, Wallet, PieChart as PieIcon,
   ListChecks, X, Check, Lock, ChevronRight, Download, AlertTriangle,
   Repeat, Target, Clock, Sun, Moon, Search, Paperclip, TrendingUp, TrendingDown,
-  DollarSign, CheckSquare, Square, Zap, Share2, Percent, PiggyBank, ArrowDownCircle, ArrowUpCircle, Calendar,
+  DollarSign, CheckSquare, Square, Zap, Share2, Percent, PiggyBank, ArrowDownCircle, ArrowUpCircle, Calendar, Camera, History, BellRing,
 } from "lucide-react";
 
 /* ---------------------------------- tokens ---------------------------------- */
@@ -27,6 +27,12 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px;
 input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 3px solid var(--gold); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.35); }
 .app-input:focus { box-shadow: 0 0 0 2px var(--gold); }
 button:focus-visible, a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+#printable-report { display: none; }
+@media print {
+  body * { visibility: hidden; }
+  #printable-report, #printable-report * { visibility: visible; }
+  #printable-report { display: block; position: absolute; left: 0; top: 0; width: 100%; padding: 24px; }
+}
 .theme-dark {
   --bg: #0A0C18; --bg-soft: #10132A; --surface: #151933; --surface-alt: #1C2140;
   --border: rgba(184,147,90,0.14); --border-strong: rgba(184,147,90,0.34);
@@ -97,6 +103,36 @@ function billingInfo(card) {
   let dueDate = new Date(now.getFullYear(), now.getMonth() + (day > card.due_day ? 1 : 0), card.due_day);
   const daysUntilDue = Math.ceil((dueDate - now) / 86400000);
   return { status: closed ? "fechada" : "aberta", daysUntilDue };
+}
+function upcomingBills(cards, expenses, withinDays = 7) {
+  const now = currentMonthKey();
+  return cards.map((c) => {
+    const { daysUntilDue } = billingInfo(c);
+    const total = expenses.filter((e) => e.card_id === c.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
+    return { card: c, daysUntilDue, total };
+  }).filter((b) => b.daysUntilDue <= withinDays && b.total > 0).sort((a, b) => a.daysUntilDue - b.daysUntilDue);
+}
+function UpcomingBillsPanel({ cards, expenses }) {
+  const bills = upcomingBills(cards, expenses);
+  if (bills.length === 0) return null;
+  return (
+    <Panel className="mb-4">
+      <h4 className="text-xs font-medium mb-3 tracking-wide uppercase flex items-center gap-1.5" style={{ color: C.muted }}>
+        <BellRing size={12} color={C.gold} /> Próximos vencimentos
+      </h4>
+      <div className="space-y-2.5">
+        {bills.map(({ card, daysUntilDue, total }) => (
+          <div key={card.id} className="flex items-center justify-between text-sm">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="truncate" style={{ color: C.text }}>{card.name}</span>
+              <Chip tone={daysUntilDue <= 2 ? "rose" : "amber"}>{daysUntilDue === 0 ? "vence hoje" : `${daysUntilDue}d`}</Chip>
+            </div>
+            <Amount value={total} size="text-sm" tone="rose" />
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
 }
 function toCSV(rows, cardName, personName) {
   const header = ["Data", "Descrição", "Categoria", "Pessoa", "Cartão", "Valor da parcela/mês", "Parcelas", "Recorrente"];
@@ -557,6 +593,20 @@ async function uploadReceipt(file, profileId) {
   const { data } = supabase.storage.from("receipts").getPublicUrl(path);
   return data.publicUrl;
 }
+async function uploadAvatar(file, profileId) {
+  const path = `${profileId}/${Date.now()}_${file.name}`.replace(/\s+/g, "_");
+  const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+  if (error) throw error;
+  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+  return data.publicUrl;
+}
+async function saveProfileAvatar(profileId, url) {
+  const { error } = await supabase.from("profiles").update({ avatar_url: url }).eq("id", profileId);
+  if (error) throw error;
+}
+async function logActivity(profileId, action, description) {
+  try { await supabase.from("activity_log").insert({ profile_id: profileId, action, description }); } catch {}
+}
 async function saveExpense(exp) {
   const isNew = !exp.id;
   const payload = {
@@ -575,6 +625,10 @@ async function saveExpense(exp) {
 }
 async function deleteExpense(exp) {
   const { error } = await supabase.from("expenses").delete().eq("id", exp.id);
+  if (error) throw error;
+}
+async function toggleExpenseReconciled(id, value) {
+  const { error } = await supabase.from("expenses").update({ reconciled: value }).eq("id", id);
   if (error) throw error;
 }
 async function saveBudget(profileId, category, monthly_limit) {
@@ -643,6 +697,34 @@ function Login({ onLogin, theme, onToggleTheme }) {
 
 /* ---------------------------------- TOPBAR ---------------------------------- */
 
+function Avatar({ profile, size = 32, editable, onUpload, uploading }) {
+  const inputRef = useRef(null);
+  const initial = firstName(profile?.name || "?").charAt(0).toUpperCase();
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      {profile?.avatar_url ? (
+        <img src={profile.avatar_url} alt="" className="w-full h-full rounded-full object-cover" />
+      ) : (
+        <div className="w-full h-full rounded-full flex items-center justify-center font-bold"
+          style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldSoft})`, color: "var(--gold-contrast)", fontFamily: "'Manrope', sans-serif", fontSize: size * 0.42 }}>
+          {initial}
+        </div>
+      )}
+      {editable && (
+        <>
+          <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
+            className="absolute -right-0.5 -bottom-0.5 rounded-full flex items-center justify-center"
+            style={{ width: Math.max(size * 0.42, 16), height: Math.max(size * 0.42, 16), background: C.gold, color: "var(--gold-contrast)", border: "2px solid var(--surface)" }}>
+            <Camera size={Math.max(size * 0.22, 9)} />
+          </button>
+          <input ref={inputRef} type="file" accept="image/*" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ""; }} />
+        </>
+      )}
+    </div>
+  );
+}
+
 function ThemeToggle({ theme, onToggle }) {
   return (
     <button onClick={onToggle} className="w-8 h-8 rounded-full flex items-center justify-center transition-all" style={{ border: `1px solid ${C.border}` }}>
@@ -651,13 +733,22 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-function TopBar({ profile, onLogout, theme, onToggleTheme, data }) {
+function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh }) {
   const [showSearch, setShowSearch] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const handleAvatarUpload = async (file) => {
+    setUploading(true);
+    try {
+      const url = await uploadAvatar(file, profile.id);
+      await saveProfileAvatar(profile.id, url);
+      await refresh();
+    } catch {} finally { setUploading(false); }
+  };
   return (
     <div className="sticky top-0 z-30" style={{ background: "var(--bg)", borderBottom: `1px solid ${C.border}`, paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="max-w-3xl mx-auto px-4 py-3.5 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Wallet size={18} color={C.gold} />
+        <div className="flex items-center gap-2.5">
+          <Avatar profile={profile} size={30} editable onUpload={handleAvatarUpload} uploading={uploading} />
           <span className="text-sm font-semibold tracking-wide" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{firstName(profile.name)}</span>
           {profile.role === "admin" && <Chip>admin</Chip>}
         </div>
@@ -1200,15 +1291,20 @@ function GroupedExpenseRow({ parts, cardName, personName, viewerProfileId, showP
   );
 }
 
-function ExpenseRow({ exp, cardName, personName, creatorName, contextMonth, onEdit, onDelete, showPerson, selectable, selected, onToggleSelect }) {
+function ExpenseRow({ exp, cardName, personName, creatorName, contextMonth, onEdit, onDelete, showPerson, selectable, selected, onToggleSelect, onToggleReconciled }) {
   const installmentLabel = !exp.is_recurring && exp.installments > 1
     ? (contextMonth ? `${Math.min(Math.max(diffMonths(exp.first_month, contextMonth) + 1, 1), exp.installments)}/${exp.installments}` : `${exp.installments}x`)
     : null;
   return (
-    <div className="flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}` }}>
+    <div className="flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}`, opacity: exp.reconciled ? 0.6 : 1 }}>
       {selectable && (
         <button onClick={() => onToggleSelect(exp.id)} className="shrink-0">
           {selected ? <CheckSquare size={16} color={C.gold} /> : <Square size={16} color={C.muted} />}
+        </button>
+      )}
+      {!selectable && onToggleReconciled && exp.card_id && (
+        <button onClick={() => onToggleReconciled(exp)} className="shrink-0" title={exp.reconciled ? "Conferido com o extrato" : "Marcar como conferido"}>
+          {exp.reconciled ? <CheckSquare size={16} color={C.green} /> : <Square size={16} color={C.muted} />}
         </button>
       )}
       <div className="w-2 h-2 rounded-full shrink-0" style={{ background: getCategoryColor(exp.category) }} />
@@ -1606,7 +1702,7 @@ function InvestmentCard({ inv, balance, transactions, profiles, viewerProfileId,
   );
 }
 
-function InvestmentSimulator({ cdiAnnual, onClose }) {
+function InvestmentSimulator({ cdiAnnual, onClose, embedded }) {
   const [initial, setInitial] = useState(1000);
   const [monthly, setMonthly] = useState(200);
   const [cdiPercent, setCdiPercent] = useState(100);
@@ -1623,8 +1719,8 @@ function InvestmentSimulator({ cdiAnnual, onClose }) {
   const totalContributed = p + a * n;
   const earned = futureValue - totalContributed;
 
-  return (
-    <Modal title="Simulador de investimento" onClose={onClose}>
+  const content = (
+    <>
       <Field label="Valor inicial (R$)"><CurrencyInput value={initial} onChange={setInitial} /></Field>
       <Field label="Aporte mensal (R$)"><CurrencyInput value={monthly} onChange={setMonthly} /></Field>
       <div className="grid grid-cols-2 gap-2">
@@ -1646,16 +1742,18 @@ function InvestmentSimulator({ cdiAnnual, onClose }) {
           <span style={{ color: C.green }}>{brl(earned)}</span>
         </div>
       </div>
-    </Modal>
+    </>
   );
+
+  if (embedded) return <Panel>{content}</Panel>;
+  return <Modal title="Simulador de investimento" onClose={onClose}>{content}</Modal>;
 }
 
 function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [moveTarget, setMoveTarget] = useState(null);
-  const [showSimulator, setShowSimulator] = useState(false);
-  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [view, setView] = useState("caixinhas");
   const { cdi, loading: cdiLoading } = useCurrentCDI();
 
   const myInvestments = isAdmin
@@ -1672,39 +1770,40 @@ function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16">
       <ScreenHeader title="Investimentos" subtitle="Caixinhas de renda fixa" />
-      <HeroPanel label="Saldo total investido" value={totalBalance} />
-      <div className="flex items-center gap-1.5 mb-4 text-xs" style={{ color: C.muted }}>
-        <TrendingUp size={12} color={C.green} />
-        {cdiLoading ? "Buscando CDI atual..." : cdi != null ? `CDI atual: ${cdi.toFixed(2)}% ao ano` : "Não foi possível buscar o CDI agora"}
+      <div className="flex gap-2 mb-4">
+        <button onClick={() => setView("caixinhas")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
+          style={{ background: view === "caixinhas" ? C.gold : C.surface, color: view === "caixinhas" ? "var(--gold-contrast)" : C.muted, border: `1px solid ${view === "caixinhas" ? C.gold : C.border}` }}>
+          <PiggyBank size={15} /> Caixinhas
+        </button>
+        <button onClick={() => setView("simulador")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
+          style={{ background: view === "simulador" ? C.gold : C.surface, color: view === "simulador" ? "var(--gold-contrast)" : C.muted, border: `1px solid ${view === "simulador" ? C.gold : C.border}` }}>
+          <Percent size={15} /> Simulador
+        </button>
       </div>
-      <div className="relative">
-        <Btn full onClick={() => setShowAddMenu((v) => !v)}><Plus size={16} /> Adicionar</Btn>
-        {showAddMenu && (
-          <div className="absolute left-0 right-0 mt-1.5 rounded-xl overflow-hidden z-20" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
-            <button onClick={() => { setEditing(null); setShowForm(true); setShowAddMenu(false); }}
-              className="flex items-center gap-2.5 w-full text-left px-4 py-3 text-sm" style={{ color: C.text, borderBottom: `1px solid ${C.border}` }}>
-              <PiggyBank size={15} color={C.green} /> Nova caixinha
-              <span className="text-[10.5px] ml-auto" style={{ color: C.muted }}>investimento real</span>
-            </button>
-            <button onClick={() => { setShowSimulator(true); setShowAddMenu(false); }}
-              className="flex items-center gap-2.5 w-full text-left px-4 py-3 text-sm" style={{ color: C.text }}>
-              <Percent size={15} color={C.gold} /> Simulador
-              <span className="text-[10.5px] ml-auto" style={{ color: C.muted }}>só calcular</span>
-            </button>
+
+      {view === "simulador" ? (
+        <InvestmentSimulator cdiAnnual={cdi} embedded />
+      ) : (
+        <>
+          <HeroPanel label="Saldo total investido" value={totalBalance} />
+          <div className="flex items-center gap-1.5 mb-4 text-xs" style={{ color: C.muted }}>
+            <TrendingUp size={12} color={C.green} />
+            {cdiLoading ? "Buscando CDI atual..." : cdi != null ? `CDI atual: ${cdi.toFixed(2)}% ao ano` : "Não foi possível buscar o CDI agora"}
           </div>
-        )}
-      </div>
-      <div className="mt-4 space-y-3">
-        {myInvestments.length === 0 && <Panel><EmptyState icon={<PiggyBank size={28} />} text="Nenhuma caixinha ainda. Crie a primeira." /></Panel>}
-        {myInvestments.map((inv) => (
-          <InvestmentCard key={inv.id} inv={inv} balance={investmentBalance(inv.id, data.investmentTransactions)} transactions={data.investmentTransactions} profiles={data.profiles}
-            viewerProfileId={profile.id} isAdmin={isAdmin} cdiAnnual={cdi}
-            onMove={(i, type) => setMoveTarget({ inv: i, type })}
-            onEdit={(i) => { setEditing(i); setShowForm(true); }}
-            onDelete={handleDeleteInvestment} onDeleteTx={handleDeleteTx} />
-        ))}
-      </div>
-      {showSimulator && <InvestmentSimulator cdiAnnual={cdi} onClose={() => setShowSimulator(false)} />}
+          <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Nova caixinha</Btn>
+          <div className="mt-4 space-y-3">
+            {myInvestments.length === 0 && <Panel><EmptyState icon={<PiggyBank size={28} />} text="Nenhuma caixinha ainda. Crie a primeira." /></Panel>}
+            {myInvestments.map((inv) => (
+              <InvestmentCard key={inv.id} inv={inv} balance={investmentBalance(inv.id, data.investmentTransactions)} transactions={data.investmentTransactions} profiles={data.profiles}
+                viewerProfileId={profile.id} isAdmin={isAdmin} cdiAnnual={cdi}
+                onMove={(i, type) => setMoveTarget({ inv: i, type })}
+                onEdit={(i) => { setEditing(i); setShowForm(true); }}
+                onDelete={handleDeleteInvestment} onDeleteTx={handleDeleteTx} />
+            ))}
+          </div>
+        </>
+      )}
+
       {showForm && <InvestmentForm allProfiles={data.profiles} viewerProfileId={profile.id} initial={editing} onSave={handleSaveInvestment} onClose={() => setShowForm(false)} />}
       {moveTarget && (
         <InvestmentTransactionForm investmentId={moveTarget.inv.id} profileId={profile.id} defaultType={moveTarget.type}
@@ -2038,6 +2137,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
   const handleSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
   const handleDelete = async (exp) => { if (!window.confirm("Excluir este gasto?")) return; await deleteExpense(exp); await refresh(); };
+  const handleToggleReconciled = async (exp) => { await toggleExpenseReconciled(exp.id, !exp.reconciled); await refresh(); };
   const handleDeleteGroup = async (parts) => {
     if (!window.confirm("Excluir este gasto dividido? As duas partes serão removidas.")) return;
     for (const p of parts) await deleteExpense(p);
@@ -2184,7 +2284,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
                     onEdit={(e) => { setEditing(e); setShowForm(true); }} onDeleteGroup={handleDeleteGroup} />
                 ) : (
                   <ExpenseRow key={row.exp.id} exp={row.exp} cardName={cardName(row.exp.card_id)} personName={personName(row.exp.profile_id)} creatorName={row.exp.created_by ? personName(row.exp.created_by) : ""} showPerson={isAdmin}
-                    onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} />
+                    onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} onToggleReconciled={handleToggleReconciled} />
                 )
               )
             )}
@@ -2217,6 +2317,11 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
               value={invoiceTotal}
               sub={invoiceStatus ? `${invoiceStatus.label === "aberta" ? "Fecha" : invoiceStatus.label === "futura" ? "Fecha" : "Fechou"} dia ${invoiceSingleCard.closing_day} · vence dia ${invoiceSingleCard.due_day}` : undefined}
             />
+            {invoiceLineItems.length > 0 && invoiceSingleCard && (
+              <p className="text-[11px] mb-2 -mt-2" style={{ color: C.muted }}>
+                {invoiceLineItems.filter((e) => e.reconciled).length} de {invoiceLineItems.length} conferidos com o extrato
+              </p>
+            )}
 
             <Panel>
               {invoiceLineItems.length === 0 ? (
@@ -2228,7 +2333,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
                       onEdit={(e) => { setEditing(e); setShowForm(true); }} onDeleteGroup={handleDeleteGroup} />
                   ) : (
                     <ExpenseRow key={row.exp.id} exp={row.exp} cardName={cardName(row.exp.card_id)} personName={personName(row.exp.profile_id)} creatorName={row.exp.created_by ? personName(row.exp.created_by) : ""} showPerson={isAdmin} contextMonth={selectedMonth}
-                      onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} />
+                      onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} onToggleReconciled={handleToggleReconciled} />
                   )
                 )
               )}
@@ -2352,6 +2457,7 @@ function MemberOverview({ profile, data, refresh }) {
       </div>
       <HeroPanel label="Total do mês" value={myMonthTotal} />
       <IncomeSection profile={profile} data={data} refresh={refresh} />
+      <UpcomingBillsPanel cards={myCards} expenses={data.expenses} />
 
       {myCards.length > 0 ? (
         <div className={`grid grid-cols-1 ${myCards.length > 1 ? "sm:grid-cols-2" : ""} gap-3`}>
@@ -2371,11 +2477,16 @@ function MemberOverview({ profile, data, refresh }) {
 
 function AdminOverview({ profile, data, refresh }) {
   const now = currentMonthKey();
+  const prevMonth = addMonthsToKey(now, -1);
   const [scopeIds, setScopeIds] = useState([]);
   const scopeActive = scopeIds.length > 0;
   const scopedExpenses = data.expenses.filter((e) => isDueIn(e, now) && (!scopeActive || scopeIds.includes(e.profile_id)));
   const totalMonth = scopedExpenses.reduce((s, e) => s + monthlyValue(e), 0);
-  const byPerson = data.profiles.map((u) => ({ ...u, total: data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0) }));
+  const byPerson = data.profiles.map((u) => ({
+    ...u,
+    total: data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0),
+    prevTotal: data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, prevMonth)).reduce((s, e) => s + monthlyValue(e), 0),
+  }));
   const adminIncomeMonth = (data.incomes || []).filter((i) => i.profile_id === profile.id && isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
   const adminExpenseMonth = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
   const scopedIncome = (data.incomes || []).filter((i) => isIncomeDueIn(i, now) && (!scopeActive || scopeIds.includes(i.profile_id))).reduce((s, i) => s + incomeMonthlyValue(i), 0);
@@ -2409,15 +2520,26 @@ function AdminOverview({ profile, data, refresh }) {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {byPerson.map((p) => {
             const active = scopeIds.includes(p.id);
+            const delta = p.prevTotal > 0 ? ((p.total - p.prevTotal) / p.prevTotal) * 100 : null;
             return (
               <button key={p.id} onClick={() => toggleScope(p.id)} className="text-left rounded-2xl p-5 transition-all" style={{ background: C.surface, border: `1px solid ${active ? C.gold : C.border}`, boxShadow: C.shadow }}>
-                <span className="text-[11px]" style={{ color: active ? C.gold : C.muted }}>{firstName(p.name)}</span>
-                <div className="mt-1"><Amount value={p.total} size="text-lg" /></div>
+                <div className="flex items-center gap-2.5 mb-2.5">
+                  <Avatar profile={p} size={28} />
+                  <span className="text-[11px]" style={{ color: active ? C.gold : C.muted }}>{firstName(p.name)}</span>
+                </div>
+                <Amount value={p.total} size="text-lg" />
+                {delta != null && (
+                  <div className="flex items-center gap-1 text-[11px] mt-1.5" style={{ color: delta > 0 ? C.rose : C.green }}>
+                    {delta > 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                    {Math.abs(delta).toFixed(0)}% vs mês passado
+                  </div>
+                )}
               </button>
             );
           })}
         </div>
         <IncomeSection profile={profile} data={data} refresh={refresh} scopeIds={scopeIds} scopeLabel={scopeActive ? `saldo · ${buildHeading(scopeIds)}` : undefined} />
+        <UpcomingBillsPanel cards={data.cards} expenses={data.expenses} />
         <h4 className="text-xs font-medium mb-1 tracking-wide uppercase" style={{ color: C.muted }}>Cartões</h4>
         <div className={`grid grid-cols-1 ${data.cards.length > 1 ? "sm:grid-cols-2" : ""} gap-3`}>
           {data.cards.map((c) => {
@@ -2457,7 +2579,7 @@ function AdminCards({ data, refresh, embedded }) {
         </div>
       )}
       <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Novo cartão</Btn>
-      <div className="mt-4 space-y-4">
+      <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
         {data.cards.length === 0 && <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão cadastrado ainda." /></Panel>}
         {data.cards.map((c) => {
           const used = data.expenses.filter((e) => e.card_id === c.id).reduce((s, e) => s + outstanding(e, now), 0);
@@ -2617,7 +2739,42 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28 space-y-4 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16">
-      <ScreenHeader title="Relatórios" subtitle={isAdmin ? `Panorama financeiro · ${scopeLabel}` : "Seu panorama financeiro"} />
+      <div className="flex items-center justify-between">
+        <ScreenHeader title="Relatórios" subtitle={isAdmin ? `Panorama financeiro · ${scopeLabel}` : "Seu panorama financeiro"} />
+        <button onClick={() => window.print()} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mb-4" style={{ border: `1px solid ${C.border}` }} title="Exportar PDF">
+          <Download size={15} color={C.gold} />
+        </button>
+      </div>
+      <div id="printable-report" style={{ color: "#111", background: "#fff" }}>
+        <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 2 }}>Relatório financeiro</h1>
+        <p style={{ fontSize: 12, color: "#555", marginBottom: 16 }}>{scopeLabel} · {heroLabel}</p>
+        <p style={{ fontSize: 22, fontWeight: 800, marginBottom: 18 }}>{brl(totalPeriod)}</p>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid #ccc", textAlign: "left" }}>
+              <th style={{ padding: "6px 4px" }}>Categoria</th>
+              <th style={{ padding: "6px 4px", textAlign: "right" }}>Valor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {byCategory.map((d) => (
+              <tr key={d.name} style={{ borderBottom: "1px solid #eee" }}>
+                <td style={{ padding: "6px 4px" }}>{d.name}</td>
+                <td style={{ padding: "6px 4px", textAlign: "right" }}>{brl(d.value)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <h2 style={{ fontSize: 14, fontWeight: 700, marginTop: 24, marginBottom: 8 }}>Resumo anual · {summaryYear}</h2>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <tbody>
+            <tr><td style={{ padding: "4px" }}>Receita</td><td style={{ padding: "4px", textAlign: "right" }}>{brl(currentYearTotals.income)}</td></tr>
+            <tr><td style={{ padding: "4px" }}>Despesa</td><td style={{ padding: "4px", textAlign: "right" }}>{brl(currentYearTotals.expense)}</td></tr>
+            <tr><td style={{ padding: "4px", fontWeight: 700 }}>Saldo</td><td style={{ padding: "4px", textAlign: "right", fontWeight: 700 }}>{brl(currentYearTotals.saldo)}</td></tr>
+          </tbody>
+        </table>
+        <p style={{ fontSize: 10, color: "#999", marginTop: 24 }}>Gerado em {formatShortDate(new Date().toISOString().slice(0, 10))} pelo Controle Financeiro.</p>
+      </div>
       <div className="flex gap-2">
         <button onClick={() => setView("charts")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: C.gold, color: "var(--gold-contrast)", border: `1px solid ${C.gold}` }}>
           <PieIcon size={15} /> Gráficos
@@ -2879,9 +3036,17 @@ function usePersistentTab(key, defaultValue) {
 
 /* ---------------------------------- DASHBOARDS ---------------------------------- */
 
-function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, data }) {
+function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, data, refresh }) {
   const [showSearch, setShowSearch] = useState(false);
-  const initial = firstName(profile.name).charAt(0).toUpperCase();
+  const [uploading, setUploading] = useState(false);
+  const handleAvatarUpload = async (file) => {
+    setUploading(true);
+    try {
+      const url = await uploadAvatar(file, profile.id);
+      await saveProfileAvatar(profile.id, url);
+      await refresh();
+    } catch {} finally { setUploading(false); }
+  };
   return (
     <div className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 lg:sticky lg:top-0 lg:h-screen px-4 py-6"
       style={{ background: "var(--bg-soft)", borderRight: `1px solid ${C.border}` }}>
@@ -2919,10 +3084,7 @@ function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, d
         </button>
       </div>
       <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-        <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-          style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldSoft})`, color: "var(--gold-contrast)", fontFamily: "'Manrope', sans-serif" }}>
-          {initial}
-        </div>
+        <Avatar profile={profile} size={32} editable onUpload={handleAvatarUpload} uploading={uploading} />
         <div className="min-w-0">
           <div className="text-xs font-semibold truncate" style={{ color: C.text }}>{firstName(profile.name)}</div>
           {profile.role === "admin" && <div className="text-[10.5px]" style={{ color: C.muted }}>admin</div>}
@@ -2949,9 +3111,9 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
   return (
     <div className="lg:flex lg:items-start">
-      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} />
+      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} />
       <div className="lg:flex-1 lg:min-w-0">
-        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} /></div>
+        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} /></div>
         {tab === "overview" && <MemberOverview profile={profile} data={data} refresh={refresh} />}
         {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
         {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
@@ -2982,9 +3144,9 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
   return (
     <div className="lg:flex lg:items-start">
-      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} />
+      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} />
       <div className="lg:flex-1 lg:min-w-0">
-        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} /></div>
+        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} /></div>
         {tab === "overview" && <AdminOverview profile={profile} data={data} refresh={refresh} />}
         {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
         {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
