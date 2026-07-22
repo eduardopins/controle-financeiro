@@ -51,9 +51,9 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--gold); outline-
 
 const CATEGORIES = ["Alimentação", "Moradia", "Transporte", "Lazer", "Saúde", "Compras", "Assinaturas", "Educação", "Outros"];
 const CAT_COLORS = {
-  "Alimentação": "#C97B4A", "Moradia": "#5C86A8", "Transporte": "#6FA37E",
-  "Lazer": "#B97BA0", "Saúde": "#B25B52", "Compras": "#8C6FA8", "Assinaturas": "#4F9B93",
-  "Educação": "#6E7EB0", "Outros": "#9C8B6F",
+  "Alimentação": "#F2994A", "Moradia": "#4A90D9", "Transporte": "#27AE60",
+  "Lazer": "#E84393", "Saúde": "#EB5757", "Compras": "#9B59B6", "Assinaturas": "#17A2A0",
+  "Educação": "#6C5CE7", "Outros": "#9AA3B5",
 };
 const MONTHS_PT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const MONTHS_FULL_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
@@ -1914,7 +1914,7 @@ function invoiceStatusInfo(card, monthKey) {
   return { label: "paga", tone: "muted" };
 }
 
-const FALLBACK_CAT_COLORS = ["#C7A24C", "#A85B3E", "#7089A8", "#C97B4A", "#6FA37E", "#B97BA0", "#8C6FA8", "#4F9B93", "#6E7EB0", "#9C8B6F"];
+const FALLBACK_CAT_COLORS = ["#F2994A", "#4A90D9", "#27AE60", "#E84393", "#EB5757", "#9B59B6", "#17A2A0", "#6C5CE7", "#F1C40F", "#FF7F6B"];
 function getCategoryColor(name) {
   if (CAT_COLORS[name]) return CAT_COLORS[name];
   let hash = 0;
@@ -3069,7 +3069,7 @@ function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, d
             <button key={t.id} onClick={() => setTab(t.id)}
               className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left relative">
               <span style={{ color: active ? C.gold : C.muted }}>{t.icon}</span>
-              <span style={{ color: active ? C.text : C.muted }}>{t.label}</span>
+              <span style={{ color: active ? C.text : C.muted }}>{t.fullLabel || t.label}</span>
               {t.badge && <span className="absolute right-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full" style={{ background: C.rose }} />}
               {active && <span className="absolute inset-0 rounded-xl -z-10" style={{ background: C.surface, border: `1px solid ${C.borderStrong}` }} />}
             </button>
@@ -3105,7 +3105,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(myCards, data.expenses) },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
-    { id: "investments", label: "Invest.", icon: <PiggyBank size={18} /> },
+    { id: "investments", label: "Invest.", fullLabel: "Investimentos", icon: <PiggyBank size={18} /> },
   ];
   const handleQuickSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
   const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
@@ -3138,7 +3138,7 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(data.cards, data.expenses) },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
-    { id: "investments", label: "Invest.", icon: <PiggyBank size={18} /> },
+    { id: "investments", label: "Invest.", fullLabel: "Investimentos", icon: <PiggyBank size={18} /> },
   ];
   const handleQuickSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
   const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
