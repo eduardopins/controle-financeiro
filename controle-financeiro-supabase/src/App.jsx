@@ -183,6 +183,10 @@ function anyCardAlert(cards, expenses) {
   });
 }
 
+function accessibleCards(data, profileId) {
+  return data.cards.filter((c) => c.memberIds.includes(profileId) || data.expenses.some((e) => e.card_id === c.id && e.profile_id === profileId));
+}
+
 /* ---------------------------------- font injection ---------------------------------- */
 
 function useFonts() {
@@ -490,7 +494,10 @@ async function saveExpense(exp) {
     total_amount: exp.totalAmount, purchase_date: exp.date, first_month: exp.firstMonth,
     installments: exp.installments, is_recurring: exp.isRecurring, is_refund: exp.isRefund ?? false, receipt_url: exp.receiptUrl ?? null,
   };
-  if (isNew) payload.created_by = exp.createdBy || exp.userId;
+  if (isNew) {
+    payload.created_by = exp.createdBy || exp.userId;
+    if (exp.splitGroupId) payload.split_group_id = exp.splitGroupId;
+  }
   const { error } = isNew
     ? await supabase.from("expenses").insert(payload)
     : await supabase.from("expenses").update(payload).eq("id", exp.id);
@@ -703,9 +710,10 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
       if (splitEnabled && splitWith && !isRefund) {
         const amountAPrecise = Math.round(amountA * 1000) / 1000;
         const amountBPrecise = Math.round((totalNum - amountAPrecise) * 1000) / 1000;
+        const splitGroupId = (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random()}`;
         toSave = [
-          { ...base, id: initial?.id, userId: selectedUserId, totalAmount: amountAPrecise, receiptUrl },
-          { ...base, userId: splitWith, totalAmount: amountBPrecise, receiptUrl: null },
+          { ...base, id: initial?.id, userId: selectedUserId, totalAmount: amountAPrecise, receiptUrl, splitGroupId },
+          { ...base, userId: splitWith, totalAmount: amountBPrecise, receiptUrl: null, splitGroupId },
         ];
       } else {
         toSave = [{ ...base, id: initial?.id, userId: selectedUserId, totalAmount: isRefund ? -Math.abs(totalNum) : totalNum, receiptUrl }];
@@ -976,7 +984,55 @@ function formatShortDate(dateStr) {
   return `${d}/${m}`;
 }
 
+function buildDisplayRows(list, allExpenses) {
+  const seen = new Set();
+  const rows = [];
+  for (const exp of list) {
+    if (exp.split_group_id) {
+      if (seen.has(exp.split_group_id)) continue;
+      seen.add(exp.split_group_id);
+      const parts = allExpenses.filter((e) => e.split_group_id === exp.split_group_id);
+      if (parts.length > 1) {
+        rows.push({ isGroup: true, groupId: exp.split_group_id, parts, primary: exp });
+        continue;
+      }
+    }
+    rows.push({ isGroup: false, exp });
+  }
+  return rows;
+}
+
 /* ---------------------------------- EXPENSE ROW ---------------------------------- */
+
+function GroupedExpenseRow({ parts, cardName, personName, viewerProfileId, showPerson, onEdit, onDeleteGroup }) {
+  const primary = parts[0];
+  const total = parts.reduce((s, p) => s + monthlyValue(p), 0);
+  const myPart = parts.find((p) => p.profile_id === viewerProfileId);
+  const editTarget = myPart || primary;
+
+  return (
+    <div className="flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}` }}>
+      <div className="w-2 h-2 rounded-full shrink-0" style={{ background: getCategoryColor(primary.category) }} />
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium truncate flex items-center gap-1.5" style={{ color: C.text }}>
+          {primary.description}
+          <Share2 size={11} color={C.muted} />
+        </div>
+        <div className="text-[11px] truncate" style={{ color: C.muted }}>
+          {formatShortDate(primary.purchase_date)} · {primary.category} · {cardName}
+        </div>
+        <div className="text-[11px] truncate mt-0.5" style={{ color: C.muted }}>
+          {showPerson
+            ? parts.map((p) => `${personName(p.profile_id)}: ${brl(monthlyValue(p))}`).join(" · ")
+            : `Total ${brl(total)} · sua parte ${brl(myPart ? monthlyValue(myPart) : 0)}`}
+        </div>
+      </div>
+      <Amount value={total} size="text-sm" />
+      <button onClick={() => onEdit(editTarget)}><Pencil size={14} color={C.muted} /></button>
+      <button onClick={() => onDeleteGroup(parts)}><Trash2 size={14} color={C.rose} /></button>
+    </div>
+  );
+}
 
 function ExpenseRow({ exp, cardName, personName, creatorName, onEdit, onDelete, showPerson, selectable, selected, onToggleSelect }) {
   return (
@@ -1049,7 +1105,7 @@ function IncomeSection({ profile, data, refresh }) {
   const now = currentMonthKey();
   const [showForm, setShowForm] = useState(false);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
-  const myCards = data.cards.filter((c) => c.memberIds.includes(profile.id));
+  const myCards = accessibleCards(data, profile.id);
   const myIncomes = (data.incomes || []).filter((i) => i.profile_id === profile.id);
   const incomeMonth = myIncomes.filter((i) => isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
   const expenseMonth = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
@@ -1413,10 +1469,15 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
     .filter((e) => !query.trim() || e.description.toLowerCase().includes(query.trim().toLowerCase()))
     .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date));
 
-  const myCards = isAdmin ? data.cards : data.cards.filter((c) => c.memberIds.includes(profile.id));
+  const myCards = isAdmin ? data.cards : accessibleCards(data, profile.id);
 
   const handleSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
   const handleDelete = async (exp) => { if (!window.confirm("Excluir este gasto?")) return; await deleteExpense(exp); await refresh(); };
+  const handleDeleteGroup = async (parts) => {
+    if (!window.confirm("Excluir este gasto dividido? As duas partes serão removidas.")) return;
+    for (const p of parts) await deleteExpense(p);
+    await refresh();
+  };
   const toggleSelect = (id) => setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   const applyBulk = async () => {
     setBulkSaving(true);
@@ -1439,7 +1500,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
   const invoiceScopedExpenses = baseExpenses.filter((e) => !isAdmin || filterPerson === "all" || e.profile_id === filterPerson);
   const invoiceCards = filterCard === "all" ? myCards : myCards.filter((c) => c.id === filterCard);
-  const invoiceMonthsList = invoiceMonths(invoiceScopedExpenses, invoiceCards.map((c) => c.id));
+  const invoiceMonthsList = invoiceMonths(invoiceScopedExpenses, invoiceCards.map((c) => c.id)).filter((mk) => /^\d{4}-\d{2}$/.test(mk));
   const invoiceLineItems = invoiceScopedExpenses
     .filter((e) => invoiceCards.some((c) => c.id === e.card_id) && isDueIn(e, selectedMonth))
     .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date));
@@ -1451,11 +1512,13 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
     if (viewMode !== "faturas") return;
     const now = currentMonthKey();
     const idx = invoiceMonthsList.indexOf(now);
-    if (idx > 0) {
-      const anchorMonth = invoiceMonthsList[idx - 1];
-      const el = monthRefs.current[anchorMonth];
-      if (el && carouselRef.current) carouselRef.current.scrollLeft = el.offsetLeft;
-    }
+    const anchorIdx = Math.max(idx - 1, 0);
+    const anchorMonth = invoiceMonthsList[anchorIdx];
+    const timer = setTimeout(() => {
+      const el = anchorMonth && monthRefs.current[anchorMonth];
+      if (el) el.scrollIntoView({ inline: "start", block: "nearest" });
+    }, 0);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, invoiceMonthsList.join(","), filterCard, filterPerson]);
 
@@ -1538,10 +1601,15 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
               {invoiceLineItems.length === 0 ? (
                 <EmptyState icon={<ListChecks size={28} />} text="Nenhum gasto nesta fatura." />
               ) : (
-                invoiceLineItems.map((exp) => (
-                  <ExpenseRow key={exp.id} exp={exp} cardName={cardName(exp.card_id)} personName={personName(exp.profile_id)} creatorName={exp.created_by ? personName(exp.created_by) : ""} showPerson={isAdmin}
-                    onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} />
-                ))
+                buildDisplayRows(invoiceLineItems, data.expenses).map((row) =>
+                  row.isGroup ? (
+                    <GroupedExpenseRow key={row.groupId} parts={row.parts} cardName={cardName(row.primary.card_id)} personName={personName} viewerProfileId={profile.id} showPerson={isAdmin}
+                      onEdit={(e) => { setEditing(e); setShowForm(true); }} onDeleteGroup={handleDeleteGroup} />
+                  ) : (
+                    <ExpenseRow key={row.exp.id} exp={row.exp} cardName={cardName(row.exp.card_id)} personName={personName(row.exp.profile_id)} creatorName={row.exp.created_by ? personName(row.exp.created_by) : ""} showPerson={isAdmin}
+                      onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} />
+                  )
+                )
               )}
             </Panel>
           </>
@@ -1593,12 +1661,22 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
           <Panel>
             {filtered.length === 0 ? (
               <EmptyState icon={<ListChecks size={28} />} text="Nenhum gasto encontrado." />
-            ) : (
+            ) : selectMode ? (
               filtered.map((exp) => (
                 <ExpenseRow key={exp.id} exp={exp} cardName={cardName(exp.card_id)} personName={personName(exp.profile_id)} creatorName={exp.created_by ? personName(exp.created_by) : ""} showPerson={isAdmin}
                   onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete}
-                  selectable={isAdmin && selectMode} selected={selected.includes(exp.id)} onToggleSelect={toggleSelect} />
+                  selectable selected={selected.includes(exp.id)} onToggleSelect={toggleSelect} />
               ))
+            ) : (
+              buildDisplayRows(filtered, data.expenses).map((row) =>
+                row.isGroup ? (
+                  <GroupedExpenseRow key={row.groupId} parts={row.parts} cardName={cardName(row.primary.card_id)} personName={personName} viewerProfileId={profile.id} showPerson={isAdmin}
+                    onEdit={(e) => { setEditing(e); setShowForm(true); }} onDeleteGroup={handleDeleteGroup} />
+                ) : (
+                  <ExpenseRow key={row.exp.id} exp={row.exp} cardName={cardName(row.exp.card_id)} personName={personName(row.exp.profile_id)} creatorName={row.exp.created_by ? personName(row.exp.created_by) : ""} showPerson={isAdmin}
+                    onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} />
+                )
+              )
             )}
           </Panel>
         </>
@@ -1693,7 +1771,7 @@ async function shareSummaryImage(params) {
 
 function MemberOverview({ profile, data, refresh }) {
   const now = currentMonthKey();
-  const myCards = data.cards.filter((c) => c.memberIds.includes(profile.id));
+  const myCards = accessibleCards(data, profile.id);
   const myExpenses = data.expenses.filter((e) => e.profile_id === profile.id);
   const myMonthTotal = myExpenses.filter((e) => isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
   const myIncomeMonth = (data.incomes || []).filter((i) => i.profile_id === profile.id && isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
@@ -1737,16 +1815,13 @@ function AdminOverview({ profile, data, refresh }) {
   const now = currentMonthKey();
   const [scopeIds, setScopeIds] = useState([]);
   const scopeActive = scopeIds.length > 0;
-  const totalMonth = data.expenses.filter((e) => isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
+  const scopedExpenses = data.expenses.filter((e) => isDueIn(e, now) && (!scopeActive || scopeIds.includes(e.profile_id)));
+  const totalMonth = scopedExpenses.reduce((s, e) => s + monthlyValue(e), 0);
   const byPerson = data.profiles.map((u) => ({ ...u, total: data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0) }));
   const adminIncomeMonth = (data.incomes || []).filter((i) => i.profile_id === profile.id && isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
   const adminExpenseMonth = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
 
-  const toggleScope = (id) => setScopeIds((prev) => {
-    if (prev.includes(id)) return prev.filter((x) => x !== id);
-    const next = [...prev, id];
-    return next.length > 2 ? next.slice(1) : next;
-  });
+  const toggleScope = (id) => setScopeIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
 
   const buildHeading = (ids) => {
     if (ids.length === 0) return "Resumo geral";
@@ -1755,13 +1830,11 @@ function AdminOverview({ profile, data, refresh }) {
     return `Resumo de ${names.join(" e ")}`;
   };
   const handleShare = () => {
-    const scopedExpenses = data.expenses.filter((e) => isDueIn(e, now) && (!scopeActive || scopeIds.includes(e.profile_id)));
-    const scopedTotal = scopedExpenses.reduce((s, e) => s + monthlyValue(e), 0);
     const categories = allCategoryNames(scopedExpenses)
       .map((cat) => ({ name: cat, value: scopedExpenses.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0), color: getCategoryColor(cat) }))
       .filter((c) => c.value > 0).sort((a, b) => b.value - a.value);
     const scopedIncome = (data.incomes || []).filter((i) => isIncomeDueIn(i, now) && (!scopeActive || scopeIds.includes(i.profile_id))).reduce((s, i) => s + incomeMonthlyValue(i), 0);
-    shareSummaryImage({ heading: buildHeading(scopeIds), monthLabelStr: monthLabel(now), total: scopedTotal, saldo: scopedIncome - scopedTotal, categories });
+    shareSummaryImage({ heading: buildHeading(scopeIds), monthLabelStr: monthLabel(now), total: totalMonth, saldo: scopedIncome - totalMonth, categories });
   };
 
   return (
@@ -1773,7 +1846,7 @@ function AdminOverview({ profile, data, refresh }) {
         </button>
       </div>
       <div className="space-y-4">
-        <HeroPanel label="Total do mês" value={totalMonth} />
+        <HeroPanel label={scopeActive ? buildHeading(scopeIds) : "Total do mês"} value={totalMonth} />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {byPerson.map((p) => {
             const active = scopeIds.includes(p.id);
@@ -2107,7 +2180,7 @@ function usePersistentTab(key, defaultValue) {
 function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = usePersistentTab("tab-member", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
-  const myCards = data.cards.filter((c) => c.memberIds.includes(profile.id));
+  const myCards = accessibleCards(data, profile.id);
   useBillAlerts(myCards, data.expenses);
   const tabs = [
     { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(myCards, data.expenses) },
@@ -2205,7 +2278,7 @@ export default function App() {
   }, [authUser, refresh]);
 
   if (authUser === undefined) return <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg, color: C.muted }}>Carregando…</div>;
-  if (!authUser) return <Login onLogin={setAuthUser} theme={theme} onToggleTheme={toggleTheme} />;
+  if (!authUser) return <Login onLogin={(u) => { try { localStorage.setItem("tab-member", "overview"); localStorage.setItem("tab-admin", "overview"); } catch {} setAuthUser(u); }} theme={theme} onToggleTheme={toggleTheme} />;
   if (!profile || !data) return <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg, color: C.muted }}>{error || "Carregando…"}</div>;
 
   const handleLogout = async () => { await supabase.auth.signOut(); };
