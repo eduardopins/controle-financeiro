@@ -1200,10 +1200,16 @@ function investmentBalance(investmentId, transactions) {
   return transactions.filter((t) => t.investment_id === investmentId)
     .reduce((s, t) => s + (t.type === "deposit" ? t.amount : -t.amount), 0);
 }
+function investmentMonthlyRate(inv) {
+  if (!inv.cdi_percent || !inv.cdi_annual_rate) return null;
+  const annualEffective = (inv.cdi_annual_rate / 100) * (inv.cdi_percent / 100);
+  return (Math.pow(1 + annualEffective, 1 / 12) - 1) * 100;
+}
 
 function InvestmentForm({ allProfiles, onSave, onClose, initial }) {
   const [name, setName] = useState(initial?.name || "");
-  const [monthlyRate, setMonthlyRate] = useState(initial?.monthly_rate != null ? String(initial.monthly_rate) : "");
+  const [cdiPercent, setCdiPercent] = useState(initial?.cdi_percent != null ? String(initial.cdi_percent) : "100");
+  const [cdiAnnualRate, setCdiAnnualRate] = useState(initial?.cdi_annual_rate != null ? String(initial.cdi_annual_rate) : "");
   const [memberIds, setMemberIds] = useState(initial?.memberIds || []);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
@@ -1213,7 +1219,12 @@ function InvestmentForm({ allProfiles, onSave, onClose, initial }) {
     if (!name.trim()) return;
     setSaving(true); setErr("");
     try {
-      await onSave({ id: initial?.id, name: name.trim(), monthly_rate: monthlyRate ? parseFloat(monthlyRate) : null, memberIds });
+      await onSave({
+        id: initial?.id, name: name.trim(),
+        cdi_percent: cdiPercent ? parseFloat(cdiPercent) : null,
+        cdi_annual_rate: cdiAnnualRate ? parseFloat(cdiAnnualRate) : null,
+        memberIds,
+      });
       onClose();
     } catch (e) {
       setSaving(false);
@@ -1224,7 +1235,11 @@ function InvestmentForm({ allProfiles, onSave, onClose, initial }) {
   return (
     <Modal title={initial ? "Editar caixinha" : "Nova caixinha"} onClose={onClose}>
       <Field label="Nome da caixinha"><TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Reserva de emergência" /></Field>
-      <Field label="Taxa mensal estimada (%, opcional)"><IconField icon={<Percent size={13} />} type="number" step="0.01" value={monthlyRate} onChange={(e) => setMonthlyRate(e.target.value)} placeholder="0,50" /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="% do CDI"><IconField icon={<Percent size={13} />} type="number" step="1" value={cdiPercent} onChange={(e) => setCdiPercent(e.target.value)} placeholder="115" /></Field>
+        <Field label="CDI atual (% ao ano)"><IconField icon={<Percent size={13} />} type="number" step="0.01" value={cdiAnnualRate} onChange={(e) => setCdiAnnualRate(e.target.value)} placeholder="Ex: 10,75" /></Field>
+      </div>
+      <p className="text-[11px] -mt-2.5 mb-3.5" style={{ color: C.muted }}>Não busco o CDI automaticamente — preencha com o valor atual (você encontra em sites como o do Banco Central ou da B3).</p>
       <Field label="Quem mais tem acesso a essa caixinha">
         <div className="flex flex-col gap-2 mt-1">
           {allProfiles.map((p) => (
@@ -1304,11 +1319,17 @@ function InvestmentCard({ inv, balance, profiles, viewerProfileId, isAdmin, onMo
           </div>
         )}
       </div>
-      <span className="text-[11px]" style={{ color: C.muted }}>saldo</span>
-      <div className="mb-3"><Amount value={balance} size="text-2xl" tone="green" /></div>
-      {inv.monthly_rate != null && (
-        <p className="text-[11px] mb-3" style={{ color: C.muted }}>rende ~{inv.monthly_rate}% ao mês · projeção {brl(balance * (1 + inv.monthly_rate / 100))}</p>
+      {inv.cdi_percent != null && (
+        <Chip tone="green" icon={<TrendingUp size={10} />}>{inv.cdi_percent}% do CDI</Chip>
       )}
+      <span className="text-[11px] block mt-2" style={{ color: C.muted }}>saldo</span>
+      <div className="mb-3"><Amount value={balance} size="text-2xl" tone="green" /></div>
+      {(() => {
+        const rate = investmentMonthlyRate(inv);
+        return rate != null && (
+          <p className="text-[11px] mb-3" style={{ color: C.muted }}>rende ~{rate.toFixed(2)}% ao mês · projeção {brl(balance * (1 + rate / 100))}</p>
+        );
+      })()}
       <div className="flex gap-2">
         <Btn full variant="ghost" onClick={() => onMove(inv, "deposit")}><ArrowUpCircle size={14} color={C.green} /> Depositar</Btn>
         <Btn full variant="ghost" onClick={() => onMove(inv, "withdraw")}><ArrowDownCircle size={14} color={C.rose} /> Resgatar</Btn>
