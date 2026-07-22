@@ -1241,12 +1241,13 @@ async function fetchCurrentCDI() {
   return (Math.pow(1 + dailyRate / 100, 252) - 1) * 100;
 }
 
-function InvestmentForm({ allProfiles, onSave, onClose, initial }) {
+function InvestmentForm({ allProfiles, viewerProfileId, onSave, onClose, initial }) {
   const [name, setName] = useState(initial?.name || "");
   const [cdiPercent, setCdiPercent] = useState(initial?.cdi_percent != null ? String(initial.cdi_percent) : "100");
   const [memberIds, setMemberIds] = useState(initial?.memberIds || []);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  const shareCandidates = allProfiles.filter((p) => p.id !== viewerProfileId);
   const toggle = (id) => setMemberIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
 
   const submit = async () => {
@@ -1270,16 +1271,18 @@ function InvestmentForm({ allProfiles, onSave, onClose, initial }) {
       <Field label="Nome da caixinha"><TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Reserva de emergência" /></Field>
       <Field label="% do CDI"><IconField icon={<Percent size={13} />} type="number" step="1" value={cdiPercent} onChange={(e) => setCdiPercent(e.target.value)} placeholder="115" /></Field>
       <p className="text-[11px] -mt-2.5 mb-3.5" style={{ color: C.muted }}>O CDI atual é buscado automaticamente e vale pra todas as caixinhas — não precisa informar aqui.</p>
-      <Field label="Quem mais tem acesso a essa caixinha">
-        <div className="flex flex-col gap-2 mt-1">
-          {allProfiles.map((p) => (
-            <label key={p.id} className="flex items-center gap-2.5 text-sm" style={{ color: C.text }}>
-              <Switch checked={memberIds.includes(p.id)} onChange={() => toggle(p.id)} />
-              {firstName(p.name)}
-            </label>
-          ))}
-        </div>
-      </Field>
+      {shareCandidates.length > 0 && (
+        <Field label="Compartilhar com outra pessoa (opcional)">
+          <div className="flex flex-col gap-2 mt-1">
+            {shareCandidates.map((p) => (
+              <label key={p.id} className="flex items-center gap-2.5 text-sm" style={{ color: C.text }}>
+                <Switch checked={memberIds.includes(p.id)} onChange={() => toggle(p.id)} />
+                {firstName(p.name)}
+              </label>
+            ))}
+          </div>
+        </Field>
+      )}
       {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
       <Btn full onClick={submit} disabled={saving}>{saving ? "Salvando..." : "Salvar caixinha"}</Btn>
     </Modal>
@@ -1404,7 +1407,7 @@ function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
             onDelete={handleDeleteInvestment} />
         ))}
       </div>
-      {showForm && <InvestmentForm allProfiles={data.profiles} initial={editing} onSave={handleSaveInvestment} onClose={() => setShowForm(false)} />}
+      {showForm && <InvestmentForm allProfiles={data.profiles} viewerProfileId={profile.id} initial={editing} onSave={handleSaveInvestment} onClose={() => setShowForm(false)} />}
       {moveTarget && (
         <InvestmentTransactionForm investmentId={moveTarget.inv.id} profileId={profile.id} defaultType={moveTarget.type}
           onSave={handleSaveTx} onClose={() => setMoveTarget(null)} />
