@@ -1124,6 +1124,8 @@ function IncomeSection({ profile, data, refresh }) {
   const incomeMonth = myIncomes.filter((i) => isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
   const expenseMonth = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
   const saldo = incomeMonth - expenseMonth;
+  const myInvestments = (data.investments || []).filter((inv) => inv.created_by === profile.id || inv.memberIds.includes(profile.id));
+  const investedTotal = myInvestments.reduce((s, inv) => s + investmentBalance(inv.id, data.investmentTransactions || []), 0);
 
   const handleSave = async (inc) => { await saveIncome(inc); await refresh(); };
   const handleDelete = async (inc) => { if (!window.confirm("Excluir esta receita?")) return; await deleteIncome(inc); await refresh(); };
@@ -1168,6 +1170,13 @@ function IncomeSection({ profile, data, refresh }) {
           <Amount value={expenseMonth} size="text-sm" tone="rose" />
         </div>
       </div>
+
+      {myInvestments.length > 0 && (
+        <div className="flex items-center justify-between pt-3 pb-1 text-xs" style={{ color: C.muted }}>
+          <span className="flex items-center gap-1.5"><PiggyBank size={12} color={C.green} /> patrimônio investido</span>
+          <Amount value={investedTotal} size="text-sm" tone="green" />
+        </div>
+      )}
 
       {myIncomes.length > 0 && (
         <div className="space-y-2.5 pt-3">
@@ -1330,9 +1339,12 @@ function InvestmentTransactionForm({ investmentId, profileId, defaultType, onSav
   );
 }
 
-function InvestmentCard({ inv, balance, profiles, viewerProfileId, isAdmin, cdiAnnual, onMove, onEdit, onDelete }) {
+function InvestmentCard({ inv, balance, transactions, profiles, viewerProfileId, isAdmin, cdiAnnual, onMove, onEdit, onDelete, onDeleteTx }) {
   const canManage = isAdmin || inv.created_by === viewerProfileId;
   const owners = profiles.filter((p) => inv.memberIds.includes(p.id) || p.id === inv.created_by).map((p) => firstName(p.name)).join(", ");
+  const [showHistory, setShowHistory] = useState(false);
+  const myTx = transactions.filter((t) => t.investment_id === inv.id).sort((a, b) => b.transaction_date.localeCompare(a.transaction_date));
+
   return (
     <Panel>
       <div className="flex items-start justify-between mb-3">
@@ -1363,10 +1375,32 @@ function InvestmentCard({ inv, balance, profiles, viewerProfileId, isAdmin, cdiA
           <p className="text-[11px] mb-3" style={{ color: C.muted }}>rende ~{rate.toFixed(2)}% ao mês · projeção {brl(balance * (1 + rate / 100))}</p>
         );
       })()}
-      <div className="flex gap-2">
+      <div className="flex gap-2 mb-2">
         <Btn full variant="ghost" onClick={() => onMove(inv, "deposit")}><ArrowUpCircle size={14} color={C.green} /> Depositar</Btn>
         <Btn full variant="ghost" onClick={() => onMove(inv, "withdraw")}><ArrowDownCircle size={14} color={C.rose} /> Resgatar</Btn>
       </div>
+      <button onClick={() => setShowHistory((v) => !v)} className="text-xs w-full text-center py-1.5" style={{ color: C.muted }}>
+        {showHistory ? "Esconder extrato ▲" : `Ver extrato (${myTx.length}) ▼`}
+      </button>
+      {showHistory && (
+        <div className="mt-1 pt-2" style={{ borderTop: `1px solid ${C.border}` }}>
+          {myTx.length === 0 ? (
+            <p className="text-xs py-2" style={{ color: C.muted }}>Nenhuma movimentação ainda.</p>
+          ) : (
+            myTx.map((t) => (
+              <div key={t.id} className="flex items-center gap-2 py-2" style={{ borderBottom: `1px solid ${C.border}` }}>
+                {t.type === "deposit" ? <ArrowUpCircle size={14} color={C.green} /> : <ArrowDownCircle size={14} color={C.rose} />}
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs truncate" style={{ color: C.text }}>{t.description || (t.type === "deposit" ? "Depósito" : "Resgate")}</div>
+                  <div className="text-[10px]" style={{ color: C.muted }}>{formatShortDate(t.transaction_date)}</div>
+                </div>
+                <Amount value={t.amount} size="text-xs" tone={t.type === "deposit" ? "green" : "rose"} />
+                <button onClick={() => onDeleteTx(t)}><Trash2 size={12} color={C.rose} /></button>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </Panel>
   );
 }
@@ -1400,11 +1434,11 @@ function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
       <div className="mt-4 space-y-3">
         {myInvestments.length === 0 && <Panel><EmptyState icon={<PiggyBank size={28} />} text="Nenhuma caixinha ainda. Crie a primeira." /></Panel>}
         {myInvestments.map((inv) => (
-          <InvestmentCard key={inv.id} inv={inv} balance={investmentBalance(inv.id, data.investmentTransactions)} profiles={data.profiles}
+          <InvestmentCard key={inv.id} inv={inv} balance={investmentBalance(inv.id, data.investmentTransactions)} transactions={data.investmentTransactions} profiles={data.profiles}
             viewerProfileId={profile.id} isAdmin={isAdmin} cdiAnnual={cdi}
             onMove={(i, type) => setMoveTarget({ inv: i, type })}
             onEdit={(i) => { setEditing(i); setShowForm(true); }}
-            onDelete={handleDeleteInvestment} />
+            onDelete={handleDeleteInvestment} onDeleteTx={handleDeleteTx} />
         ))}
       </div>
       {showForm && <InvestmentForm allProfiles={data.profiles} viewerProfileId={profile.id} initial={editing} onSave={handleSaveInvestment} onClose={() => setShowForm(false)} />}
@@ -1418,7 +1452,7 @@ function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
 
 /* ---------------------------------- ---------------------------------- */
 
-function GoalsScreen({ profile, data, refresh }) {
+function GoalsScreen({ profile, data, refresh, embedded }) {
   const now = currentMonthKey();
   const dueNow = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now));
   const myBudgets = data.budgets.filter((b) => b.profile_id === profile.id);
@@ -1439,8 +1473,8 @@ function GoalsScreen({ profile, data, refresh }) {
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
-      <ScreenHeader title="Metas" subtitle="Seus limites por categoria" />
+    <div className={embedded ? "pb-28 pt-3" : "max-w-3xl mx-auto px-4 py-5 pb-28"}>
+      {!embedded && <ScreenHeader title="Metas" subtitle="Seus limites por categoria" />}
       <div className="space-y-3">
         {myCategories.map((cat) => {
           const spent = dueNow.filter((e) => e.category === cat).reduce((s, e) => s + monthlyValue(e), 0);
@@ -2250,9 +2284,10 @@ function PersonFilter({ profiles, selectedIds, onChange }) {
 
 /* ---------------------------------- ADMIN: REPORTS ---------------------------------- */
 
-function ReportsScreen({ profile, data, isAdmin }) {
+function ReportsScreen({ profile, data, refresh, isAdmin }) {
   const now = currentMonthKey();
   const prevMonth = addMonthsToKey(now, -1);
+  const [view, setView] = useState("charts");
   const [period, setPeriod] = useState("month");
   const [customRange, setCustomRange] = useState({ start: "", end: "" });
   const [selectedIds, setSelectedIds] = useState([]);
@@ -2277,9 +2312,25 @@ function ReportsScreen({ profile, data, isAdmin }) {
   const heroLabel = period === "month" ? "Total do mês" : `Total (${periodPresetLabel(period)})`;
   const scopeLabel = !isAdmin ? "Seu relatório" : selectedIds.length === 0 ? "Todos" : scopeProfiles.map((p) => firstName(p.name)).join(" e ");
 
+  if (view === "goals") {
+    return (
+      <div className="max-w-3xl mx-auto px-4 pt-5">
+        <div className="flex gap-1.5 mb-1">
+          <button onClick={() => setView("charts")} className="px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}` }}>Gráficos</button>
+          <button onClick={() => setView("goals")} className="px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: C.gold, color: "#1A1607", border: `1px solid ${C.gold}` }}>Metas</button>
+        </div>
+        <GoalsScreen profile={profile} data={data} refresh={refresh} embedded />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28 space-y-4">
       <ScreenHeader title="Relatórios" subtitle={isAdmin ? `Panorama financeiro · ${scopeLabel}` : "Seu panorama financeiro"} />
+      <div className="flex gap-1.5 -mt-2">
+        <button onClick={() => setView("charts")} className="px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: C.gold, color: "#1A1607", border: `1px solid ${C.gold}` }}>Gráficos</button>
+        <button onClick={() => setView("goals")} className="px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}` }}>Metas</button>
+      </div>
       <PeriodFilter value={period} onChange={setPeriod} customRange={customRange} onCustomChange={setCustomRange} />
       <HeroPanel label={heroLabel} value={totalPeriod} />
 
@@ -2310,19 +2361,20 @@ function ReportsScreen({ profile, data, isAdmin }) {
                 <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={3} cornerRadius={6}>
                   {byCategory.map((d, i) => <Cell key={i} fill={getCategoryColor(d.name)} stroke="none" />)}
                 </Pie>
-                <Tooltip formatter={(v) => brl(v)} offset={40} allowEscapeViewBox={{ x: true, y: true }}
-                  contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} />
               </PieChart>
             </ResponsiveContainer>
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ top: -8 }}>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
               <span className="text-[10px]" style={{ color: C.muted }}>total</span>
               <span className="text-lg font-extrabold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{brl(totalPeriod)}</span>
             </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1.5 justify-center mt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3">
               {byCategory.map((d) => (
-                <div key={d.name} className="flex items-center gap-1.5 text-[11px]" style={{ color: C.muted }}>
-                  <span className="w-2 h-2 rounded-full" style={{ background: getCategoryColor(d.name) }} />
-                  {d.name}
+                <div key={d.name}>
+                  <div className="flex items-center gap-1.5 text-[11px]" style={{ color: C.muted }}>
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: getCategoryColor(d.name) }} />
+                    {d.name}
+                  </div>
+                  <Amount value={d.value} size="text-sm" />
                 </div>
               ))}
             </div>
@@ -2450,7 +2502,6 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
     { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(myCards, data.expenses) },
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
-    { id: "goals", label: "Metas", icon: <Target size={18} /> },
   ];
   const handleQuickSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
   return (
@@ -2458,8 +2509,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
       <TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} />
       {tab === "overview" && <MemberOverview profile={profile} data={data} refresh={refresh} />}
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
-      {tab === "reports" && <ReportsScreen profile={profile} data={data} isAdmin={false} />}
-      {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
+      {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
       {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
       <FloatingAddButton onClick={() => setShowQuickAdd(true)} />
       {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id}
@@ -2474,12 +2524,11 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   useBillAlerts(data.cards, data.expenses);
   const tabs = [
-    { id: "investments", label: "Invest.", icon: <PiggyBank size={18} /> },
     { id: "cards", label: "Cartões", icon: <CreditCard size={18} /> },
     { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(data.cards, data.expenses) },
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
-    { id: "goals", label: "Metas", icon: <Target size={18} /> },
+    { id: "investments", label: "Invest.", icon: <PiggyBank size={18} /> },
   ];
   const handleQuickSave = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
   return (
@@ -2488,8 +2537,7 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
       {tab === "overview" && <AdminOverview profile={profile} data={data} refresh={refresh} />}
       {tab === "cards" && <AdminCards data={data} refresh={refresh} />}
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
-      {tab === "reports" && <ReportsScreen profile={profile} data={data} isAdmin />}
-      {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
+      {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
       {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
       <FloatingAddButton onClick={() => setShowQuickAdd(true)} />
       {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id} canRefund
