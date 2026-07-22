@@ -25,6 +25,8 @@ body { font-family: 'Inter', sans-serif; }
 input[type=range] { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px; outline: none; }
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 3px solid var(--gold); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.35); }
 input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 3px solid var(--gold); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.35); }
+.app-input:focus { box-shadow: 0 0 0 2px var(--gold); }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .theme-dark {
   --bg: #0A0C18; --bg-soft: #10132A; --surface: #151933; --surface-alt: #1C2140;
   --border: rgba(184,147,90,0.14); --border-strong: rgba(184,147,90,0.34);
@@ -43,9 +45,9 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 
 const CATEGORIES = ["Alimentação", "Moradia", "Transporte", "Lazer", "Saúde", "Compras", "Assinaturas", "Educação", "Outros"];
 const CAT_COLORS = {
-  "Alimentação": "#F59E0B", "Moradia": "#3B82F6", "Transporte": "#10B981",
-  "Lazer": "#EC4899", "Saúde": "#EF4444", "Compras": "#8B5CF6", "Assinaturas": "#14B8A6",
-  "Educação": "#06B6D4", "Outros": "#6B7280",
+  "Alimentação": "#C97B4A", "Moradia": "#5C86A8", "Transporte": "#6FA37E",
+  "Lazer": "#B97BA0", "Saúde": "#B25B52", "Compras": "#8C6FA8", "Assinaturas": "#4F9B93",
+  "Educação": "#6E7EB0", "Outros": "#9C8B6F",
 };
 const MONTHS_PT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const MONTHS_FULL_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
@@ -220,11 +222,11 @@ function shade(hex, percent) {
   const R = f >> 16, G = (f >> 8) & 0x00ff, B = f & 0x0000ff;
   return "#" + (0x1000000 + (Math.round((t - R) * p) + R) * 0x10000 + (Math.round((t - G) * p) + G) * 0x100 + (Math.round((t - B) * p) + B)).toString(16).slice(1);
 }
-const HERO_GRADIENT = "linear-gradient(135deg, #7C3AED, #4C1D95)";
+const HERO_GRADIENT = "linear-gradient(135deg, #C9A24C, #4A2E12)";
 
 function HeroPanel({ label, value, sub }) {
   return (
-    <div className="rounded-3xl p-6 mb-4 relative overflow-hidden" style={{ background: HERO_GRADIENT, boxShadow: "0 14px 34px rgba(76,29,149,0.35)" }}>
+    <div className="rounded-3xl p-6 mb-4 relative overflow-hidden" style={{ background: HERO_GRADIENT, boxShadow: "0 14px 34px rgba(178,127,51,0.35)" }}>
       <div style={{ position: "absolute", right: -40, top: -40, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
       <div style={{ position: "absolute", left: -25, bottom: -55, width: 130, height: 130, borderRadius: "50%", background: "rgba(255,255,255,0.06)" }} />
       <span className="text-xs relative" style={{ color: "rgba(255,255,255,0.75)" }}>{label}</span>
@@ -314,7 +316,7 @@ function Field({ label, children }) {
   return <label className="block mb-3.5"><span className="block text-xs mb-1.5 tracking-wide" style={{ color: C.muted }}>{label}</span>{children}</label>;
 }
 const inputStyle = { background: C.bgSoft, border: `1px solid ${C.border}`, color: C.text };
-const inputClass = "w-full rounded-lg px-3 py-2.5 text-base outline-none focus:ring-1";
+const inputClass = "w-full rounded-lg px-3 py-2.5 text-base outline-none app-input";
 function TextInput(props) { return <input {...props} className={inputClass} style={{ ...inputStyle, ...(props.style || {}) }} />; }
 function Select(props) { return <select {...props} className={inputClass} style={inputStyle} />; }
 function Modal({ title, onClose, children }) {
@@ -976,7 +978,7 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
               </div>
               <input type="range" min="0" max="100" step="1" value={pct} onChange={(e) => onChangePct(e.target.value)}
                 className="w-full mb-1.5"
-                style={{ background: `linear-gradient(to right, ${C.gold} 0%, ${C.gold} ${pct}%, #7C3AED ${pct}%, #7C3AED 100%)` }} />
+                style={{ background: `linear-gradient(to right, ${C.gold} 0%, ${C.gold} ${pct}%, #8C6FA8 ${pct}%, #8C6FA8 100%)` }} />
               <div className="flex items-center justify-between text-xs mb-3" style={{ color: C.muted }}>
                 <span>{brl(amountA)}</span>
                 <span>{brl(amountB)}</span>
@@ -1080,7 +1082,7 @@ function CardWidget({ card, used, nextAmount }) {
   const tone = pct > 85 ? "rose" : pct > 60 ? "gold" : "green";
   const { status, daysUntilDue } = billingInfo(card);
   const brand = detectBank(card.name);
-  const base = brand ? brand.color : "#7C3AED";
+  const base = brand ? brand.color : "#C9A24C";
   const gradient = `linear-gradient(135deg, ${base}, ${shade(base, -0.4)})`;
 
   return (
@@ -1799,7 +1801,7 @@ function invoiceStatusInfo(card, monthKey) {
   return { label: "paga", tone: "muted" };
 }
 
-const FALLBACK_CAT_COLORS = ["#F59E0B", "#3B82F6", "#10B981", "#EC4899", "#EF4444", "#8B5CF6", "#06B6D4", "#6B7280", "#84CC16", "#F472B6"];
+const FALLBACK_CAT_COLORS = ["#C7A24C", "#A85B3E", "#7089A8", "#C97B4A", "#6FA37E", "#B97BA0", "#8C6FA8", "#4F9B93", "#6E7EB0", "#9C8B6F"];
 function getCategoryColor(name) {
   if (CAT_COLORS[name]) return CAT_COLORS[name];
   let hash = 0;
@@ -2251,7 +2253,7 @@ function drawSummaryCanvas({ heading, monthLabelStr, total, saldo, categories })
   canvas.width = 800; canvas.height = 1000;
   const ctx = canvas.getContext("2d");
   const grad = ctx.createLinearGradient(0, 0, 800, 1000);
-  grad.addColorStop(0, "#7C3AED"); grad.addColorStop(1, "#3B1466");
+  grad.addColorStop(0, "#C9A24C"); grad.addColorStop(1, "#3D2811");
   ctx.fillStyle = grad; ctx.fillRect(0, 0, 800, 1000);
 
   ctx.fillStyle = "rgba(255,255,255,0.08)";
@@ -2475,7 +2477,7 @@ const PERSON_COLOR_MAP = { eduardo: "#10B981", nilvane: "#EC4899" };
 function personColorFor(name, fallbackIndex) {
   const key = firstName(name).toLowerCase();
   if (PERSON_COLOR_MAP[key]) return PERSON_COLOR_MAP[key];
-  const fallback = ["#7C3AED", "#3B82F6", "#F59E0B", "#06B6D4"];
+  const fallback = ["#5C86A8", "#C7A24C", "#8C6FA8", "#4F9B93"];
   return fallback[fallbackIndex % fallback.length];
 }
 function monthKeysForPeriod(period, customRange) {
@@ -2789,7 +2791,7 @@ function FloatingAddButton({ onAddExpense, onAddIncome }) {
         </>
       )}
       <button onClick={() => setOpen((v) => !v)} className="rounded-full flex items-center justify-center transition-all active:scale-95"
-        style={{ width: 54, height: 54, background: HERO_GRADIENT, boxShadow: "0 10px 24px rgba(76,29,149,0.45)", transform: open ? "rotate(45deg)" : "none" }}>
+        style={{ width: 54, height: 54, background: HERO_GRADIENT, boxShadow: "0 10px 24px rgba(178,127,51,0.45)", transform: open ? "rotate(45deg)" : "none" }}>
         <Zap size={22} color="#fff" style={{ display: open ? "none" : "block" }} />
         <Plus size={24} color="#fff" style={{ display: open ? "block" : "none" }} />
       </button>
