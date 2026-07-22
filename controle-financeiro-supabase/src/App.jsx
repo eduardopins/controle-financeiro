@@ -41,10 +41,10 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 }
 `;
 
-const CATEGORIES = ["Alimentação", "Moradia", "Transporte", "Lazer", "Saúde", "Compras", "Educação", "Outros"];
+const CATEGORIES = ["Alimentação", "Moradia", "Transporte", "Lazer", "Saúde", "Compras", "Assinaturas", "Educação", "Outros"];
 const CAT_COLORS = {
   "Alimentação": "#F59E0B", "Moradia": "#3B82F6", "Transporte": "#10B981",
-  "Lazer": "#EC4899", "Saúde": "#EF4444", "Compras": "#8B5CF6",
+  "Lazer": "#EC4899", "Saúde": "#EF4444", "Compras": "#8B5CF6", "Assinaturas": "#14B8A6",
   "Educação": "#06B6D4", "Outros": "#6B7280",
 };
 const MONTHS_PT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
@@ -1311,6 +1311,7 @@ function InvestmentTransactionForm({ investmentId, profileId, defaultType, onSav
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [description, setDescription] = useState("");
+  const [receiptFile, setReceiptFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -1318,7 +1319,9 @@ function InvestmentTransactionForm({ investmentId, profileId, defaultType, onSav
     if (!amount) return;
     setSaving(true); setErr("");
     try {
-      await onSave({ investmentId, profileId, type, amount: parseFloat(amount), date, description: description.trim() });
+      let receiptUrl = null;
+      if (receiptFile) receiptUrl = await uploadReceipt(receiptFile, profileId);
+      await onSave({ investmentId, profileId, type, amount: parseFloat(amount), date, description: description.trim(), receiptUrl });
       onClose();
     } catch (e) {
       setSaving(false);
@@ -1341,6 +1344,9 @@ function InvestmentTransactionForm({ investmentId, profileId, defaultType, onSav
       <Field label="Valor (R$)"><CurrencyInput value={amount} onChange={setAmount} /></Field>
       <Field label="Data"><TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
       <Field label="Descrição (opcional)"><TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: Aporte mensal" /></Field>
+      <Field label="Comprovante (opcional)">
+        <input type="file" accept="image/*,application/pdf" onChange={(e) => setReceiptFile(e.target.files?.[0] || null)} className="text-xs" style={{ color: C.muted }} />
+      </Field>
       {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
       <Btn full onClick={submit} disabled={saving}>{saving ? "Salvando..." : "Confirmar"}</Btn>
     </Modal>
@@ -1408,7 +1414,10 @@ function InvestmentCard({ inv, balance, transactions, profiles, viewerProfileId,
               <div key={t.id} className="flex items-center gap-2 py-2" style={{ borderBottom: `1px solid ${C.border}` }}>
                 {t.type === "deposit" ? <ArrowUpCircle size={14} color={C.green} /> : <ArrowDownCircle size={14} color={C.rose} />}
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs truncate" style={{ color: C.text }}>{t.description || (t.type === "deposit" ? "Depósito" : "Resgate")}</div>
+                  <div className="text-xs truncate flex items-center gap-1.5" style={{ color: C.text }}>
+                    {t.description || (t.type === "deposit" ? "Depósito" : "Resgate")}
+                    {t.receipt_url && <a href={t.receipt_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}><Paperclip size={11} color={C.muted} /></a>}
+                  </div>
                   <div className="text-[10px]" style={{ color: C.muted }}>{formatShortDate(t.transaction_date)}</div>
                 </div>
                 <Amount value={t.amount} size="text-xs" tone={t.type === "deposit" ? "green" : "rose"} />
@@ -1607,7 +1616,7 @@ async function deleteInvestment(inv) {
   if (error) throw error;
 }
 async function saveInvestmentTransaction(tx) {
-  const payload = { investment_id: tx.investmentId, profile_id: tx.profileId, type: tx.type, amount: tx.amount, transaction_date: tx.date, description: tx.description || null };
+  const payload = { investment_id: tx.investmentId, profile_id: tx.profileId, type: tx.type, amount: tx.amount, transaction_date: tx.date, description: tx.description || null, receipt_url: tx.receiptUrl || null };
   const { error } = await supabase.from("investment_transactions").insert(payload);
   if (error) throw error;
 }
@@ -1848,19 +1857,19 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
       <ScreenHeader title={viewMode === "cards" ? "Cartões" : "Faturas"} subtitle={viewMode === "cards" ? "Limites, vencimentos e acessos" : (isAdmin ? "Todos os lançamentos" : "Seus lançamentos")} />
 
-      <div className="flex gap-1.5 mb-3">
-        <button onClick={() => setViewMode("faturas")} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-          style={{ background: viewMode === "faturas" ? C.gold : "transparent", color: viewMode === "faturas" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "faturas" ? C.gold : C.border}` }}>
-          Faturas
+      <div className="flex gap-2 mb-3">
+        <button onClick={() => setViewMode("faturas")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
+          style={{ background: viewMode === "faturas" ? C.gold : C.surface, color: viewMode === "faturas" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "faturas" ? C.gold : C.border}` }}>
+          <ListChecks size={15} /> Faturas
         </button>
-        <button onClick={() => setViewMode("lista")} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-          style={{ background: viewMode === "lista" ? C.gold : "transparent", color: viewMode === "lista" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "lista" ? C.gold : C.border}` }}>
-          Buscar tudo
+        <button onClick={() => setViewMode("lista")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
+          style={{ background: viewMode === "lista" ? C.gold : C.surface, color: viewMode === "lista" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "lista" ? C.gold : C.border}` }}>
+          <Search size={15} /> Buscar tudo
         </button>
         {isAdmin && (
-          <button onClick={() => setViewMode("cards")} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-            style={{ background: viewMode === "cards" ? C.gold : "transparent", color: viewMode === "cards" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "cards" ? C.gold : C.border}` }}>
-            Cartões
+          <button onClick={() => setViewMode("cards")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
+            style={{ background: viewMode === "cards" ? C.gold : C.surface, color: viewMode === "cards" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "cards" ? C.gold : C.border}` }}>
+            <CreditCard size={15} /> Cartões
           </button>
         )}
       </div>
@@ -2388,17 +2397,19 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
         {byCategory.length === 0 ? (
           <EmptyState icon={<PieIcon size={28} />} text="Sem dados neste período." />
         ) : (
-          <div className="relative">
-            <ResponsiveContainer width="100%" height={230}>
-              <PieChart>
-                <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={3} cornerRadius={6}>
-                  {byCategory.map((d, i) => <Cell key={i} fill={getCategoryColor(d.name)} stroke="none" />)}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-[10px]" style={{ color: C.muted }}>total</span>
-              <span className="text-lg font-extrabold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{brl(totalPeriod)}</span>
+          <div>
+            <div className="relative" style={{ height: 230 }}>
+              <ResponsiveContainer width="100%" height={230}>
+                <PieChart>
+                  <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={3} cornerRadius={6}>
+                    {byCategory.map((d, i) => <Cell key={i} fill={getCategoryColor(d.name)} stroke="none" />)}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-[10px]" style={{ color: C.muted }}>total</span>
+                <span className="text-lg font-extrabold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{brl(totalPeriod)}</span>
+              </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3">
               {byCategory.map((d) => (
