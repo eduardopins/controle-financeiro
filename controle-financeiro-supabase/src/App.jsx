@@ -790,7 +790,7 @@ async function extractReceiptData(file) {
 
 /* ---------------------------------- EXPENSE FORM ---------------------------------- */
 
-function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, customCategories, onAddCategory, startWithNoCard, creatorId, canRefund }) {
+function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, customCategories, onAddCategory, startWithNoCard, creatorId, canRefund, onImportCSV }) {
   const [selectedUserId, setSelectedUserId] = useState(initial?.profile_id || userId);
   const [cardId, setCardId] = useState(() => {
     if (initial) return initial.card_id || "";
@@ -893,6 +893,11 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
           <FileInput accept="image/*" label="Escolher foto" onFileSelected={handleReceiptChange} />
           {importing && <p className="text-xs mt-1.5 flex items-center gap-1.5" style={{ color: C.muted }}><Clock size={11} /> Lendo comprovante...</p>}
           {importNote && !importing && <p className="text-xs mt-1.5" style={{ color: C.gold }}>{importNote}</p>}
+          {onImportCSV && (
+            <button type="button" onClick={onImportCSV} className="flex items-center gap-1.5 text-xs mt-2.5" style={{ color: C.gold }}>
+              <Paperclip size={12} /> Ou importar um extrato do banco (CSV) de uma vez
+            </button>
+          )}
         </Field>
       )}
 
@@ -2116,7 +2121,6 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
       <div className="flex gap-2 mb-4">
         <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Novo gasto</Btn>
-        <Btn variant="ghost" onClick={() => setShowImportCSV(true)} disabled={myCards.length === 0}><Paperclip size={16} /></Btn>
         <div className="relative">
           <Btn variant="ghost" onClick={() => setShowExportMenu((v) => !v)}><Download size={16} /></Btn>
           {showExportMenu && (
@@ -2223,7 +2227,8 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
         <ExpenseForm cards={myCards} userId={editing?.profile_id || profile.id} initial={editing}
           onSave={handleSave} onClose={() => setShowForm(false)}
           allProfiles={data.profiles} creatorId={profile.id} canRefund={isAdmin}
-          customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />
+          customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }}
+          onImportCSV={myCards.length > 0 ? () => { setShowForm(false); setShowImportCSV(true); } : null} />
       )}
       {showImportCSV && (
         <ImportCSVModal cards={myCards} userId={profile.id} onImport={handleSave} onClose={() => setShowImportCSV(false)} />
