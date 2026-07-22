@@ -81,6 +81,7 @@ function monthlyValue(exp) {
 }
 function outstanding(exp, nowKey = currentMonthKey()) {
   if (exp.is_recurring) return 0;
+  if (exp.is_refund) return exp.total_amount; // já é negativo — libera limite de verdade
   const done = Math.min(Math.max(diffMonths(exp.first_month, nowKey), 0), exp.installments);
   const monthly = exp.total_amount / exp.installments;
   return Math.max(exp.total_amount - done * monthly, 0);
@@ -1021,10 +1022,20 @@ function GroupedExpenseRow({ parts, cardName, personName, viewerProfileId, showP
         <div className="text-[11px] truncate" style={{ color: C.muted }}>
           {formatShortDate(primary.purchase_date)} · {primary.category} · {cardName}
         </div>
-        <div className="text-[11px] truncate mt-0.5" style={{ color: C.muted }}>
-          {showPerson
-            ? parts.map((p) => `${personName(p.profile_id)}: ${brl(monthlyValue(p))}`).join(" · ")
-            : `Total ${brl(total)} · sua parte ${brl(myPart ? monthlyValue(myPart) : 0)}`}
+        <div className="text-[11px] truncate mt-0.5">
+          {showPerson ? (
+            parts.map((p, i) => (
+              <span key={p.id}>
+                {i > 0 && <span style={{ color: C.muted }}> · </span>}
+                <span style={{ color: p.id === viewerProfileId ? C.gold : C.muted }}>{personName(p.profile_id)}: {brl(monthlyValue(p))}</span>
+              </span>
+            ))
+          ) : (
+            <>
+              <span style={{ color: C.muted }}>Total {brl(total)} · </span>
+              <span style={{ color: C.gold, fontWeight: 600 }}>sua parte {brl(myPart ? monthlyValue(myPart) : 0)}</span>
+            </>
+          )}
         </div>
       </div>
       <Amount value={total} size="text-sm" />
