@@ -7,7 +7,7 @@ import {
   CreditCard, Plus, Pencil, Trash2, LogOut, LayoutGrid, Wallet, PieChart as PieIcon,
   ListChecks, X, Check, Lock, ChevronRight, Download, AlertTriangle,
   Repeat, Target, Clock, Sun, Moon, Search, Paperclip, TrendingUp, TrendingDown,
-  DollarSign, CheckSquare, Square, Zap, Share2, Percent,
+  DollarSign, CheckSquare, Square, Zap, Share2, Percent, PiggyBank, ArrowDownCircle, ArrowUpCircle,
 } from "lucide-react";
 
 /* ---------------------------------- tokens ---------------------------------- */
@@ -435,7 +435,7 @@ function BottomNav({ tabs, tab, setTab }) {
 /* ---------------------------------- data layer (Supabase) ---------------------------------- */
 
 async function loadAll() {
-  const [profiles, cards, cardAccess, expenses, budgets, incomes, customCategories] = await Promise.all([
+  const [profiles, cards, cardAccess, expenses, budgets, incomes, customCategories, investments, investmentAccess, investmentTx] = await Promise.all([
     supabase.from("profiles").select("*"),
     supabase.from("cards").select("*"),
     supabase.from("card_access").select("*"),
@@ -443,10 +443,17 @@ async function loadAll() {
     supabase.from("budgets").select("*"),
     supabase.from("incomes").select("*"),
     supabase.from("custom_categories").select("*"),
+    supabase.from("investments").select("*"),
+    supabase.from("investment_access").select("*"),
+    supabase.from("investment_transactions").select("*"),
   ]);
   const cardsWithMembers = (cards.data || []).map((c) => ({
     ...c,
     memberIds: (cardAccess.data || []).filter((a) => a.card_id === c.id).map((a) => a.profile_id),
+  }));
+  const investmentsWithAccess = (investments.data || []).map((inv) => ({
+    ...inv,
+    memberIds: (investmentAccess.data || []).filter((a) => a.investment_id === inv.id).map((a) => a.profile_id),
   }));
   return {
     profiles: profiles.data || [],
@@ -455,6 +462,8 @@ async function loadAll() {
     budgets: budgets.data || [],
     incomes: incomes.data || [],
     customCategories: customCategories.data || [],
+    investments: investmentsWithAccess,
+    investmentTransactions: investmentTx.data || [],
   };
 }
 
@@ -1185,6 +1194,171 @@ function IncomeSection({ profile, data, refresh }) {
 
 /* ---------------------------------- GOALS (individual, reusable) ---------------------------------- */
 
+/* ---------------------------------- INVESTMENTS ---------------------------------- */
+
+function investmentBalance(investmentId, transactions) {
+  return transactions.filter((t) => t.investment_id === investmentId)
+    .reduce((s, t) => s + (t.type === "deposit" ? t.amount : -t.amount), 0);
+}
+
+function InvestmentForm({ allProfiles, onSave, onClose, initial }) {
+  const [name, setName] = useState(initial?.name || "");
+  const [monthlyRate, setMonthlyRate] = useState(initial?.monthly_rate != null ? String(initial.monthly_rate) : "");
+  const [memberIds, setMemberIds] = useState(initial?.memberIds || []);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const toggle = (id) => setMemberIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+
+  const submit = async () => {
+    if (!name.trim()) return;
+    setSaving(true); setErr("");
+    try {
+      await onSave({ id: initial?.id, name: name.trim(), monthly_rate: monthlyRate ? parseFloat(monthlyRate) : null, memberIds });
+      onClose();
+    } catch (e) {
+      setSaving(false);
+      setErr(friendlyError(e));
+    }
+  };
+
+  return (
+    <Modal title={initial ? "Editar caixinha" : "Nova caixinha"} onClose={onClose}>
+      <Field label="Nome da caixinha"><TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Reserva de emergência" /></Field>
+      <Field label="Taxa mensal estimada (%, opcional)"><IconField icon={<Percent size={13} />} type="number" step="0.01" value={monthlyRate} onChange={(e) => setMonthlyRate(e.target.value)} placeholder="0,50" /></Field>
+      <Field label="Quem mais tem acesso a essa caixinha">
+        <div className="flex flex-col gap-2 mt-1">
+          {allProfiles.map((p) => (
+            <label key={p.id} className="flex items-center gap-2.5 text-sm" style={{ color: C.text }}>
+              <Switch checked={memberIds.includes(p.id)} onChange={() => toggle(p.id)} />
+              {firstName(p.name)}
+            </label>
+          ))}
+        </div>
+      </Field>
+      {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
+      <Btn full onClick={submit} disabled={saving}>{saving ? "Salvando..." : "Salvar caixinha"}</Btn>
+    </Modal>
+  );
+}
+
+function InvestmentTransactionForm({ investmentId, profileId, defaultType, onSave, onClose }) {
+  const [type, setType] = useState(defaultType || "deposit");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [description, setDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    if (!amount) return;
+    setSaving(true); setErr("");
+    try {
+      await onSave({ investmentId, profileId, type, amount: parseFloat(amount), date, description: description.trim() });
+      onClose();
+    } catch (e) {
+      setSaving(false);
+      setErr(friendlyError(e));
+    }
+  };
+
+  return (
+    <Modal title="Movimentar caixinha" onClose={onClose}>
+      <div className="flex gap-2 mb-3.5">
+        <button onClick={() => setType("deposit")} className="flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-medium"
+          style={{ background: type === "deposit" ? C.green : "transparent", color: type === "deposit" ? "#fff" : C.muted, border: `1px solid ${type === "deposit" ? C.green : C.border}` }}>
+          <ArrowUpCircle size={15} /> Depositar
+        </button>
+        <button onClick={() => setType("withdraw")} className="flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-medium"
+          style={{ background: type === "withdraw" ? C.rose : "transparent", color: type === "withdraw" ? "#fff" : C.muted, border: `1px solid ${type === "withdraw" ? C.rose : C.border}` }}>
+          <ArrowDownCircle size={15} /> Resgatar
+        </button>
+      </div>
+      <Field label="Valor (R$)"><CurrencyInput value={amount} onChange={setAmount} /></Field>
+      <Field label="Data"><TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+      <Field label="Descrição (opcional)"><TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: Aporte mensal" /></Field>
+      {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
+      <Btn full onClick={submit} disabled={saving}>{saving ? "Salvando..." : "Confirmar"}</Btn>
+    </Modal>
+  );
+}
+
+function InvestmentCard({ inv, balance, profiles, viewerProfileId, isAdmin, onMove, onEdit, onDelete }) {
+  const canManage = isAdmin || inv.created_by === viewerProfileId;
+  const owners = profiles.filter((p) => inv.memberIds.includes(p.id) || p.id === inv.created_by).map((p) => firstName(p.name)).join(", ");
+  return (
+    <Panel>
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "rgba(84,176,138,0.15)" }}>
+            <PiggyBank size={18} color={C.green} />
+          </div>
+          <div>
+            <div className="font-medium text-sm" style={{ color: C.text }}>{inv.name}</div>
+            <div className="text-[11px]" style={{ color: C.muted }}>acesso: {owners}</div>
+          </div>
+        </div>
+        {canManage && (
+          <div className="flex gap-2 shrink-0">
+            <button onClick={() => onEdit(inv)}><Pencil size={14} color={C.muted} /></button>
+            <button onClick={() => onDelete(inv)}><Trash2 size={14} color={C.rose} /></button>
+          </div>
+        )}
+      </div>
+      <span className="text-[11px]" style={{ color: C.muted }}>saldo</span>
+      <div className="mb-3"><Amount value={balance} size="text-2xl" tone="green" /></div>
+      {inv.monthly_rate != null && (
+        <p className="text-[11px] mb-3" style={{ color: C.muted }}>rende ~{inv.monthly_rate}% ao mês · projeção {brl(balance * (1 + inv.monthly_rate / 100))}</p>
+      )}
+      <div className="flex gap-2">
+        <Btn full variant="ghost" onClick={() => onMove(inv, "deposit")}><ArrowUpCircle size={14} color={C.green} /> Depositar</Btn>
+        <Btn full variant="ghost" onClick={() => onMove(inv, "withdraw")}><ArrowDownCircle size={14} color={C.rose} /> Resgatar</Btn>
+      </div>
+    </Panel>
+  );
+}
+
+function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [moveTarget, setMoveTarget] = useState(null);
+
+  const myInvestments = isAdmin
+    ? data.investments
+    : data.investments.filter((inv) => inv.created_by === profile.id || inv.memberIds.includes(profile.id));
+
+  const totalBalance = myInvestments.reduce((s, inv) => s + investmentBalance(inv.id, data.investmentTransactions), 0);
+
+  const handleSaveInvestment = async (inv) => { await saveInvestment({ ...inv, created_by: profile.id }); await refresh(); };
+  const handleDeleteInvestment = async (inv) => { if (!window.confirm(`Excluir a caixinha "${inv.name}"? Isso também remove o histórico dela.`)) return; await deleteInvestment(inv); await refresh(); };
+  const handleSaveTx = async (tx) => { await saveInvestmentTransaction(tx); await refresh(); };
+  const handleDeleteTx = async (tx) => { if (!window.confirm("Excluir esta movimentação?")) return; await deleteInvestmentTransaction(tx); await refresh(); };
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 py-5 pb-28">
+      <ScreenHeader title="Investimentos" subtitle="Caixinhas de renda fixa" />
+      <HeroPanel label="Saldo total investido" value={totalBalance} />
+      <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Nova caixinha</Btn>
+      <div className="mt-4 space-y-3">
+        {myInvestments.length === 0 && <Panel><EmptyState icon={<PiggyBank size={28} />} text="Nenhuma caixinha ainda. Crie a primeira." /></Panel>}
+        {myInvestments.map((inv) => (
+          <InvestmentCard key={inv.id} inv={inv} balance={investmentBalance(inv.id, data.investmentTransactions)} profiles={data.profiles}
+            viewerProfileId={profile.id} isAdmin={isAdmin}
+            onMove={(i, type) => setMoveTarget({ inv: i, type })}
+            onEdit={(i) => { setEditing(i); setShowForm(true); }}
+            onDelete={handleDeleteInvestment} />
+        ))}
+      </div>
+      {showForm && <InvestmentForm allProfiles={data.profiles} initial={editing} onSave={handleSaveInvestment} onClose={() => setShowForm(false)} />}
+      {moveTarget && (
+        <InvestmentTransactionForm investmentId={moveTarget.inv.id} profileId={profile.id} defaultType={moveTarget.type}
+          onSave={handleSaveTx} onClose={() => setMoveTarget(null)} />
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------- ---------------------------------- */
+
 function GoalsScreen({ profile, data, refresh }) {
   const now = currentMonthKey();
   const dueNow = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now));
@@ -1297,6 +1471,38 @@ function allCategoryNames(expenses) {
 
 async function saveCustomCategory(profileId, name) {
   const { error } = await supabase.from("custom_categories").insert({ profile_id: profileId, name });
+  if (error) throw error;
+}
+async function saveInvestment(inv) {
+  const { memberIds, created_by, ...rest } = inv;
+  const isNew = !inv.id;
+  let invId = inv.id;
+  if (isNew) {
+    const { data, error } = await supabase.from("investments").insert({ ...rest, created_by }).select().single();
+    if (error) throw error;
+    invId = data.id;
+  } else {
+    const { error } = await supabase.from("investments").update(rest).eq("id", invId);
+    if (error) throw error;
+  }
+  const { error: delErr } = await supabase.from("investment_access").delete().eq("investment_id", invId);
+  if (delErr) throw delErr;
+  if (memberIds.length) {
+    const { error: accErr } = await supabase.from("investment_access").insert(memberIds.map((profile_id) => ({ investment_id: invId, profile_id })));
+    if (accErr) throw accErr;
+  }
+}
+async function deleteInvestment(inv) {
+  const { error } = await supabase.from("investments").delete().eq("id", inv.id);
+  if (error) throw error;
+}
+async function saveInvestmentTransaction(tx) {
+  const payload = { investment_id: tx.investmentId, profile_id: tx.profileId, type: tx.type, amount: tx.amount, transaction_date: tx.date, description: tx.description || null };
+  const { error } = await supabase.from("investment_transactions").insert(payload);
+  if (error) throw error;
+}
+async function deleteInvestmentTransaction(tx) {
+  const { error } = await supabase.from("investment_transactions").delete().eq("id", tx.id);
   if (error) throw error;
 }
 async function bulkUpdateCategory(ids, category) {
@@ -2184,6 +2390,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const myCards = accessibleCards(data, profile.id);
   useBillAlerts(myCards, data.expenses);
   const tabs = [
+    { id: "investments", label: "Invest.", icon: <PiggyBank size={18} /> },
     { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(myCards, data.expenses) },
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
@@ -2197,6 +2404,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
       {tab === "reports" && <ReportsScreen profile={profile} data={data} isAdmin={false} />}
       {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
+      {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
       <FloatingAddButton onClick={() => setShowQuickAdd(true)} />
       {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id}
         customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
@@ -2210,6 +2418,7 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   useBillAlerts(data.cards, data.expenses);
   const tabs = [
+    { id: "investments", label: "Invest.", icon: <PiggyBank size={18} /> },
     { id: "cards", label: "Cartões", icon: <CreditCard size={18} /> },
     { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(data.cards, data.expenses) },
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
@@ -2225,6 +2434,7 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
       {tab === "reports" && <ReportsScreen profile={profile} data={data} isAdmin />}
       {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
+      {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
       <FloatingAddButton onClick={() => setShowQuickAdd(true)} />
       {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id} canRefund
         customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
