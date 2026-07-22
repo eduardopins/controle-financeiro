@@ -486,7 +486,7 @@ async function uploadReceipt(file, profileId) {
 async function saveExpense(exp) {
   const isNew = !exp.id;
   const payload = {
-    card_id: exp.cardId, profile_id: exp.userId, category: exp.category, description: exp.description,
+    card_id: exp.cardId || null, profile_id: exp.userId, category: exp.category, description: exp.description,
     total_amount: exp.totalAmount, purchase_date: exp.date, first_month: exp.firstMonth,
     installments: exp.installments, is_recurring: exp.isRecurring, receipt_url: exp.receiptUrl ?? null,
   };
@@ -622,9 +622,12 @@ async function extractReceiptData(file) {
 
 /* ---------------------------------- EXPENSE FORM ---------------------------------- */
 
-function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, customCategories, onAddCategory }) {
+function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, customCategories, onAddCategory, startWithNoCard }) {
   const [selectedUserId, setSelectedUserId] = useState(initial?.profile_id || userId);
-  const [cardId, setCardId] = useState(initial?.card_id || cards[0]?.id || "");
+  const [cardId, setCardId] = useState(() => {
+    if (initial) return initial.card_id || "";
+    return startWithNoCard ? "" : (cards[0]?.id || "");
+  });
   const [category, setCategory] = useState(initial?.category || CATEGORIES[0]);
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -685,7 +688,7 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
   };
 
   const submit = async () => {
-    if (!cardId || !description.trim() || !totalAmount) return;
+    if (!description.trim() || !totalAmount) return;
     setSaving(true); setErr("");
     try {
       let receiptUrl = existingReceipt;
@@ -715,7 +718,7 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
     <Modal title={initial ? "Editar gasto" : "Novo gasto"} onClose={onClose}>
       {!initial && (
         <Field label="Importar de foto ou print (opcional)">
-          <input type="file" accept="image/*" capture="environment" onChange={(e) => handleReceiptChange(e.target.files?.[0] || null)}
+          <input type="file" accept="image/*" onChange={(e) => handleReceiptChange(e.target.files?.[0] || null)}
             className="text-xs" style={{ color: C.muted }} />
           {importing && <p className="text-xs mt-1.5 flex items-center gap-1.5" style={{ color: C.muted }}><Clock size={11} /> Lendo comprovante...</p>}
           {importNote && !importing && <p className="text-xs mt-1.5" style={{ color: C.gold }}>{importNote}</p>}
@@ -733,6 +736,7 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
         )}
         <Field label="Cartão">
           <Select value={cardId} onChange={(e) => setCardId(e.target.value)}>
+            <option value="">Sem cartão (dinheiro/Pix)</option>
             {cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
         </Field>
@@ -831,7 +835,7 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
             className="text-xs" style={{ color: C.muted }} />
         </Field>
       )}
-      <Btn full onClick={submit} disabled={!cardId || saving || importing}>{saving ? "Salvando..." : "Salvar gasto"}</Btn>
+      <Btn full onClick={submit} disabled={saving || importing}>{saving ? "Salvando..." : "Salvar gasto"}</Btn>
     </Modal>
   );
 }
@@ -1020,6 +1024,8 @@ function IncomeForm({ profileId, onSave, onClose, initial }) {
 function IncomeSection({ profile, data, refresh }) {
   const now = currentMonthKey();
   const [showForm, setShowForm] = useState(false);
+  const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const myCards = data.cards.filter((c) => c.memberIds.includes(profile.id));
   const myIncomes = (data.incomes || []).filter((i) => i.profile_id === profile.id);
   const incomeMonth = myIncomes.filter((i) => isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
   const expenseMonth = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
@@ -1027,6 +1033,7 @@ function IncomeSection({ profile, data, refresh }) {
 
   const handleSave = async (inc) => { await saveIncome(inc); await refresh(); };
   const handleDelete = async (inc) => { if (!window.confirm("Excluir esta receita?")) return; await deleteIncome(inc); await refresh(); };
+  const handleSaveExpense = async (expArr) => { for (const e of (Array.isArray(expArr) ? expArr : [expArr])) await saveExpense(e); await refresh(); };
 
   return (
     <Panel className="mb-4" style={{
@@ -1043,9 +1050,14 @@ function IncomeSection({ profile, data, refresh }) {
             <div><Amount value={saldo} size="text-2xl" tone={saldo < 0 ? "rose" : "green"} /></div>
           </div>
         </div>
-        <button onClick={() => setShowForm(true)} className="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2 shrink-0" style={{ background: C.gold, color: "#1A1607" }}>
-          <Plus size={14} /> Receita
-        </button>
+        <div className="flex gap-2 shrink-0">
+          <button onClick={() => setShowExpenseForm(true)} className="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2" style={{ background: C.bgSoft, color: C.text, border: `1px solid ${C.border}` }}>
+            <Plus size={14} /> Gasto
+          </button>
+          <button onClick={() => setShowForm(true)} className="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2" style={{ background: C.gold, color: "#1A1607" }}>
+            <Plus size={14} /> Receita
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2.5 pb-4" style={{ borderBottom: `1px solid ${C.border}` }}>
@@ -1077,6 +1089,11 @@ function IncomeSection({ profile, data, refresh }) {
         </div>
       )}
       {showForm && <IncomeForm profileId={profile.id} onSave={handleSave} onClose={() => setShowForm(false)} />}
+      {showExpenseForm && (
+        <ExpenseForm cards={myCards} userId={profile.id} onSave={handleSaveExpense} onClose={() => setShowExpenseForm(false)}
+          allProfiles={data.profiles} customCategories={data.customCategories} startWithNoCard
+          onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />
+      )}
     </Panel>
   );
 }
@@ -1359,7 +1376,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [viewMode, setViewMode] = useState("faturas");
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
 
-  const cardName = (id) => data.cards.find((c) => c.id === id)?.name || "-";
+  const cardName = (id) => id ? (data.cards.find((c) => c.id === id)?.name || "-") : "Dinheiro/Pix";
   const personName = (id) => firstName(data.profiles.find((u) => u.id === id)?.name) || "-";
   const range = periodToRange(period, customRange);
 
@@ -1497,7 +1514,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
           </div>
 
           <div className="flex gap-2 mb-4">
-            <Btn full onClick={() => { setEditing(null); setShowForm(true); }} disabled={myCards.length === 0}><Plus size={16} /> Novo gasto</Btn>
+            <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Novo gasto</Btn>
             <Btn variant="ghost" onClick={() => setShowImportCSV(true)} disabled={myCards.length === 0}><Paperclip size={16} /></Btn>
             <div className="relative">
               <Btn variant="ghost" onClick={() => setShowExportMenu((v) => !v)}><Download size={16} /></Btn>
@@ -2047,7 +2064,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
       {tab === "reports" && <ReportsScreen profile={profile} data={data} isAdmin={false} />}
       {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
-      {myCards.length > 0 && <FloatingAddButton onClick={() => setShowQuickAdd(true)} />}
+      <FloatingAddButton onClick={() => setShowQuickAdd(true)} />
       {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles}
         customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
       <BottomNav tabs={tabs} tab={tab} setTab={setTab} />
@@ -2075,7 +2092,7 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
       {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
       {tab === "reports" && <ReportsScreen profile={profile} data={data} isAdmin />}
       {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
-      {data.cards.length > 0 && <FloatingAddButton onClick={() => setShowQuickAdd(true)} />}
+      <FloatingAddButton onClick={() => setShowQuickAdd(true)} />
       {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles}
         customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
       <BottomNav tabs={tabs} tab={tab} setTab={setTab} />
