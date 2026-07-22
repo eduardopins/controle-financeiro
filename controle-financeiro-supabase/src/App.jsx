@@ -109,17 +109,6 @@ function downloadCSV(content, filename) {
   link.download = filename;
   link.click();
 }
-function periodToRange(period, custom) {
-  const today = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  const end = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
-  if (period === "custom") return { start: custom.start || end, end: custom.end || end };
-  if (period === "month") return { start: `${today.getFullYear()}-${pad(today.getMonth() + 1)}-01`, end };
-  const monthsBack = { "1m": 1, "3m": 3, "6m": 6, "12m": 12 }[period];
-  const startDate = new Date(today.getFullYear(), today.getMonth() - monthsBack, today.getDate());
-  return { start: `${startDate.getFullYear()}-${pad(startDate.getMonth() + 1)}-${pad(startDate.getDate())}`, end };
-}
-
 function isIncomeDueIn(inc, monthKey) {
   const idx = diffMonths(inc.first_month, monthKey);
   if (inc.is_recurring) return idx >= 0;
@@ -374,39 +363,6 @@ function EmptyState({ icon, text }) {
 }
 function periodPresetLabel(id) {
   return { month: "Este mês", last_month: "Mês passado", "3m": "Últimos 3 meses", "6m": "Últimos 6 meses", year: "Este ano", custom: "Personalizado" }[id];
-}
-function PeriodFilter({ value, onChange, customRange, onCustomChange }) {
-  const [open, setOpen] = useState(false);
-  const presets = ["month", "last_month", "3m", "6m", "year", "custom"];
-  return (
-    <>
-      <button onClick={() => setOpen(true)} className="shrink-0 flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all"
-        style={{ background: C.bgSoft, color: C.text, border: `1px solid ${C.border}` }}>
-        <Clock size={13} color={C.gold} /> {periodPresetLabel(value)} <ChevronRight size={13} color={C.muted} />
-      </button>
-      {open && (
-        <Modal title="Filtrar por período" onClose={() => setOpen(false)}>
-          <div className="space-y-2 mb-2">
-            {presets.map((p) => (
-              <button key={p} onClick={() => { onChange(p); if (p !== "custom") setOpen(false); }}
-                className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-all"
-                style={{ background: value === p ? C.gold : C.bgSoft, color: value === p ? "#1A1607" : C.text, border: `1px solid ${value === p ? C.gold : C.border}` }}>
-                {periodPresetLabel(p)}
-                {value === p && <Check size={15} />}
-              </button>
-            ))}
-          </div>
-          {value === "custom" && (
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              <Field label="De"><TextInput type="date" value={customRange.start} onChange={(e) => onCustomChange({ ...customRange, start: e.target.value })} /></Field>
-              <Field label="Até"><TextInput type="date" value={customRange.end} onChange={(e) => onCustomChange({ ...customRange, end: e.target.value })} /></Field>
-            </div>
-          )}
-          {value === "custom" && <Btn full onClick={() => setOpen(false)}>Aplicar</Btn>}
-        </Modal>
-      )}
-    </>
-  );
 }
 
 /* ---------------------------------- bottom navigation ---------------------------------- */
@@ -1913,8 +1869,6 @@ function ImportCSVModal({ cards, userId, onImport, onClose }) {
 function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [filterPerson, setFilterPerson] = useState("all");
   const [filterCard, setFilterCard] = useState("all");
-  const [period, setPeriod] = useState("month");
-  const [customRange, setCustomRange] = useState({ start: "", end: "" });
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [query, setQuery] = useState("");
@@ -1950,14 +1904,13 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
   const cardName = (id) => id ? (data.cards.find((c) => c.id === id)?.name || "-") : "Dinheiro/Pix";
   const personName = (id) => firstName(data.profiles.find((u) => u.id === id)?.name) || "-";
-  const range = periodToRange(period, customRange);
+  const searching = query.trim().length > 0;
 
   const baseExpenses = isAdmin ? data.expenses : data.expenses.filter((e) => e.profile_id === profile.id);
   const filtered = baseExpenses
     .filter((e) => !isAdmin || filterPerson === "all" || e.profile_id === filterPerson)
     .filter((e) => filterCard === "all" || e.card_id === filterCard)
-    .filter((e) => e.purchase_date >= range.start && e.purchase_date <= range.end)
-    .filter((e) => !query.trim() || e.description.toLowerCase().includes(query.trim().toLowerCase()))
+    .filter((e) => e.description.toLowerCase().includes(query.trim().toLowerCase()))
     .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date));
 
   const myCards = isAdmin ? data.cards : accessibleCards(data, profile.id);
@@ -2023,10 +1976,6 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
           style={{ background: viewMode === "faturas" ? C.gold : C.surface, color: viewMode === "faturas" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "faturas" ? C.gold : C.border}` }}>
           <ListChecks size={15} /> Faturas
         </button>
-        <button onClick={() => setViewMode(viewMode === "lista" ? "faturas" : "lista")} aria-label="Buscar tudo" className="shrink-0 flex items-center justify-center w-11 py-2.5 rounded-xl transition-all"
-          style={{ background: viewMode === "lista" ? C.gold : C.surface, color: viewMode === "lista" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "lista" ? C.gold : C.border}` }}>
-          <Search size={15} />
-        </button>
         {isAdmin && (
           <button onClick={() => setViewMode("cards")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
             style={{ background: viewMode === "cards" ? C.gold : C.surface, color: viewMode === "cards" ? "#1A1607" : C.muted, border: `1px solid ${viewMode === "cards" ? C.gold : C.border}` }}>
@@ -2060,7 +2009,68 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
         </div>
       )}
 
-      {viewMode === "faturas" && (
+      <div className="relative mb-3">
+        <Search size={15} color={C.muted} className="absolute left-3 top-1/2 -translate-y-1/2" />
+        <TextInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar em todos os meses..." style={{ paddingLeft: 34 }} />
+      </div>
+
+      <div className="flex gap-2 mb-4">
+        <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Novo gasto</Btn>
+        <Btn variant="ghost" onClick={() => setShowImportCSV(true)} disabled={myCards.length === 0}><Paperclip size={16} /></Btn>
+        <div className="relative">
+          <Btn variant="ghost" onClick={() => setShowExportMenu((v) => !v)}><Download size={16} /></Btn>
+          {showExportMenu && (
+            <div className="absolute right-0 mt-1.5 rounded-xl overflow-hidden z-20" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
+              <button onClick={() => { downloadCSV(toCSV(filtered, cardName, personName), `gastos-${currentMonthKey()}.csv`); setShowExportMenu(false); }}
+                className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text }}>Planilha (CSV)</button>
+              <button onClick={() => { exportBackup(); setShowExportMenu(false); }}
+                className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>Backup (JSON)</button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {searching ? (
+        <>
+          {isAdmin && (
+            <div className="flex items-center justify-between mb-3">
+              <button onClick={() => { setSelectMode((v) => !v); setSelected([]); }} className="flex items-center gap-1.5 text-xs" style={{ color: selectMode ? C.gold : C.muted }}>
+                <CheckSquare size={13} /> {selectMode ? "Cancelar seleção" : "Selecionar vários"}
+              </button>
+              {selectMode && selected.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <Select value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} style={{ padding: "6px 8px", fontSize: 12 }}>
+                    {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </Select>
+                  <Btn onClick={applyBulk} disabled={bulkSaving}>{bulkSaving ? "..." : `Aplicar (${selected.length})`}</Btn>
+                </div>
+              )}
+            </div>
+          )}
+
+          <Panel>
+            {filtered.length === 0 ? (
+              <EmptyState icon={<ListChecks size={28} />} text="Nenhum gasto encontrado." />
+            ) : selectMode ? (
+              filtered.map((exp) => (
+                <ExpenseRow key={exp.id} exp={exp} cardName={cardName(exp.card_id)} personName={personName(exp.profile_id)} creatorName={exp.created_by ? personName(exp.created_by) : ""} showPerson={isAdmin}
+                  onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete}
+                  selectable selected={selected.includes(exp.id)} onToggleSelect={toggleSelect} />
+              ))
+            ) : (
+              buildDisplayRows(filtered, data.expenses).map((row) =>
+                row.isGroup ? (
+                  <GroupedExpenseRow key={row.groupId} parts={row.parts} cardName={cardName(row.primary.card_id)} personName={personName} viewerProfileId={profile.id} showPerson={isAdmin}
+                    onEdit={(e) => { setEditing(e); setShowForm(true); }} onDeleteGroup={handleDeleteGroup} />
+                ) : (
+                  <ExpenseRow key={row.exp.id} exp={row.exp} cardName={cardName(row.exp.card_id)} personName={personName(row.exp.profile_id)} creatorName={row.exp.created_by ? personName(row.exp.created_by) : ""} showPerson={isAdmin}
+                    onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} />
+                )
+              )
+            )}
+          </Panel>
+        </>
+      ) : (
         invoiceMonthsList.length === 0 ? (
           <Panel><EmptyState icon={<CreditCard size={28} />} text="Nada por aqui ainda." /></Panel>
         ) : (
@@ -2105,72 +2115,6 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
             </Panel>
           </>
         )
-      )}
-
-      {viewMode === "lista" && (
-        <>
-          <div className="flex flex-wrap gap-2 items-center mb-3">
-            <PeriodFilter value={period} onChange={setPeriod} customRange={customRange} onCustomChange={setCustomRange} />
-            <div className="relative flex-1 min-w-[160px]">
-              <Search size={15} color={C.muted} className="absolute left-3 top-1/2 -translate-y-1/2" />
-              <TextInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar..." style={{ paddingLeft: 34 }} />
-            </div>
-          </div>
-
-          <div className="flex gap-2 mb-4">
-            <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Novo gasto</Btn>
-            <Btn variant="ghost" onClick={() => setShowImportCSV(true)} disabled={myCards.length === 0}><Paperclip size={16} /></Btn>
-            <div className="relative">
-              <Btn variant="ghost" onClick={() => setShowExportMenu((v) => !v)}><Download size={16} /></Btn>
-              {showExportMenu && (
-                <div className="absolute right-0 mt-1.5 rounded-xl overflow-hidden z-20" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
-                  <button onClick={() => { downloadCSV(toCSV(filtered, cardName, personName), `gastos-${period}.csv`); setShowExportMenu(false); }}
-                    className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text }}>Planilha (CSV)</button>
-                  <button onClick={() => { exportBackup(); setShowExportMenu(false); }}
-                    className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>Backup (JSON)</button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {isAdmin && (
-            <div className="flex items-center justify-between mb-3">
-              <button onClick={() => { setSelectMode((v) => !v); setSelected([]); }} className="flex items-center gap-1.5 text-xs" style={{ color: selectMode ? C.gold : C.muted }}>
-                <CheckSquare size={13} /> {selectMode ? "Cancelar seleção" : "Selecionar vários"}
-              </button>
-              {selectMode && selected.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <Select value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} style={{ padding: "6px 8px", fontSize: 12 }}>
-                    {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </Select>
-                  <Btn onClick={applyBulk} disabled={bulkSaving}>{bulkSaving ? "..." : `Aplicar (${selected.length})`}</Btn>
-                </div>
-              )}
-            </div>
-          )}
-
-          <Panel>
-            {filtered.length === 0 ? (
-              <EmptyState icon={<ListChecks size={28} />} text="Nenhum gasto encontrado." />
-            ) : selectMode ? (
-              filtered.map((exp) => (
-                <ExpenseRow key={exp.id} exp={exp} cardName={cardName(exp.card_id)} personName={personName(exp.profile_id)} creatorName={exp.created_by ? personName(exp.created_by) : ""} showPerson={isAdmin}
-                  onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete}
-                  selectable selected={selected.includes(exp.id)} onToggleSelect={toggleSelect} />
-              ))
-            ) : (
-              buildDisplayRows(filtered, data.expenses).map((row) =>
-                row.isGroup ? (
-                  <GroupedExpenseRow key={row.groupId} parts={row.parts} cardName={cardName(row.primary.card_id)} personName={personName} viewerProfileId={profile.id} showPerson={isAdmin}
-                    onEdit={(e) => { setEditing(e); setShowForm(true); }} onDeleteGroup={handleDeleteGroup} />
-                ) : (
-                  <ExpenseRow key={row.exp.id} exp={row.exp} cardName={cardName(row.exp.card_id)} personName={personName(row.exp.profile_id)} creatorName={row.exp.created_by ? personName(row.exp.created_by) : ""} showPerson={isAdmin}
-                    onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} />
-                )
-              )
-            )}
-          </Panel>
-        </>
       )}
         </>
       )}
