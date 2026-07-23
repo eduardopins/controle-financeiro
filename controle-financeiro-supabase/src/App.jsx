@@ -410,8 +410,8 @@ function Modal({ title, onClose, children }) {
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(6,8,20,0.75)" }}>
-      <div className="w-full max-w-md rounded-2xl p-5 max-h-[85vh] overflow-y-auto" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(6,8,20,0.75)" }} onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl p-5 max-h-[85vh] overflow-y-auto" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{title}</h3>
           <button onClick={onClose}><X size={18} color={C.muted} /></button>
@@ -475,8 +475,8 @@ function DateInput({ value, onChange, placeholder }) {
         <Calendar size={15} color={C.muted} />
       </button>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(6,8,20,0.75)" }}>
-          <div className="w-full max-w-sm rounded-2xl p-5" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow, maxHeight: "94vh", overflowY: "auto" }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(6,8,20,0.75)" }} onClick={() => setOpen(false)}>
+          <div className="w-full max-w-sm rounded-2xl p-5" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow, maxHeight: "94vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>Selecionar data</h3>
               <button type="button" onClick={() => setOpen(false)}><X size={18} color={C.muted} /></button>
@@ -898,8 +898,8 @@ function AvatarCropModal({ file, onCancel, onCropped }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(6,8,20,0.75)" }}>
-      <div className="w-full max-w-sm rounded-2xl p-5" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow, maxHeight: "94vh", overflowY: "auto" }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(6,8,20,0.75)" }} onClick={onCancel}>
+      <div className="w-full max-w-sm rounded-2xl p-5" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow, maxHeight: "94vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-semibold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>Ajustar foto</h3>
           <button onClick={onCancel}><X size={18} color={C.muted} /></button>
@@ -3743,14 +3743,14 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
 
       <Panel>
         <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Evolução mensal</h4>
-        <ResponsiveContainer width="100%" height={230}>
-          <BarChart data={evolution} barGap={2} barCategoryGap="28%">
+        <ResponsiveContainer width="100%" height={250}>
+          <BarChart data={evolution} barGap={6} barCategoryGap="30%">
             <XAxis dataKey="month" stroke={C.muted} fontSize={10} axisLine={false} tickLine={false} interval={0} />
             <YAxis stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} tickFormatter={compactNumber} width={38} />
             <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} cursor={{ fill: "rgba(124,58,237,0.06)" }} />
             {scopeProfiles.map((u, i) => (
-              <Bar key={u.id} dataKey={firstName(u.name)} radius={[6, 6, 0, 0]} fill={personColorFor(u.name, i)} maxBarSize={22}>
-                <LabelList dataKey={firstName(u.name)} position="top" formatter={(v) => (v > 0 ? compactNumber(v) : "")} fontSize={9} fill={C.muted} />
+              <Bar key={u.id} dataKey={firstName(u.name)} radius={[6, 6, 0, 0]} fill={personColorFor(u.name, i)} maxBarSize={16}>
+                <LabelList dataKey={firstName(u.name)} position="top" formatter={(v) => (v > 0 ? compactNumber(v) : "")} fontSize={8} fill={C.muted} />
               </Bar>
             ))}
           </BarChart>
