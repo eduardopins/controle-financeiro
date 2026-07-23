@@ -80,9 +80,15 @@ const monthLabel = (key) => { const [y, m] = key.split("-").map(Number); return 
 function addMonthsToKey(key, n) {
   const [y, m] = key.split("-").map(Number);
   const total = (m - 1) + n;
-  return `${y + Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, "0")}`;
+  const normalized = ((total % 12) + 12) % 12;
+  return `${y + Math.floor(total / 12)}-${String(normalized + 1).padStart(2, "0")}`;
 }
-const last6Months = () => { const now = currentMonthKey(); return Array.from({ length: 6 }, (_, i) => addMonthsToKey(now, i - 5)); };
+const last6Months = () => { const now = referenceMonthKey(); return Array.from({ length: 6 }, (_, i) => addMonthsToKey(now, i - 5)); };
+
+// "Mês de referência": como as compras do cartão feitas após o fechamento já caem na
+// fatura seguinte, usamos o mês seguinte como o "mês corrente" nas telas de análise
+// (Visão geral, Relatórios, Metas) — é a fatura que ainda está sendo formada/vai ser paga.
+function referenceMonthKey() { return addMonthsToKey(currentMonthKey(), 1); }
 
 // Compras feitas depois do dia de fechamento do cartão caem na fatura do mês seguinte
 // (o mês corrente já fechou); no dia do fechamento ou antes, ainda entram no mês atual.
@@ -1434,7 +1440,7 @@ function projectMonthEnd(expenses, profileIds, monthKey = currentMonthKey()) {
 }
 
 function IncomeSection({ profile, data, refresh, scopeIds, scopeLabel }) {
-  const now = currentMonthKey();
+  const now = referenceMonthKey();
   const ids = scopeIds && scopeIds.length > 0 ? scopeIds : [profile.id];
   const myIncomes = (data.incomes || []).filter((i) => i.profile_id === profile.id);
   const incomeMonth = (data.incomes || []).filter((i) => ids.includes(i.profile_id) && isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
@@ -1896,7 +1902,7 @@ function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
 /* ---------------------------------- ---------------------------------- */
 
 function GoalsScreen({ profile, data, refresh, embedded }) {
-  const now = currentMonthKey();
+  const now = referenceMonthKey();
   const dueNow = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now));
   const myBudgets = data.budgets.filter((b) => b.profile_id === profile.id);
   const myCategories = [...CATEGORIES, ...(data.customCategories || []).filter((c) => c.profile_id === profile.id).map((c) => c.name)];
@@ -1987,10 +1993,11 @@ function invoiceMonths(expenses, cardIds) {
   return [...past, ...forward];
 }
 function invoiceStatusInfo(card, monthKey) {
-  const now = currentMonthKey();
-  const diff = diffMonths(monthKey, now);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const currentInvoiceMonth = invoiceMonthForPurchase(todayStr, card.closing_day);
+  const diff = diffMonths(monthKey, currentInvoiceMonth);
   if (diff > 0) return { label: "futura", tone: "muted" };
-  if (diff === 0) return billingInfo(card).status === "fechada" ? { label: "fechada", tone: "amber" } : { label: "aberta", tone: "green" };
+  if (diff === 0) return { label: "aberta", tone: "green" };
   return { label: "paga", tone: "muted" };
 }
 
@@ -2201,7 +2208,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
     el.scrollLeft = dragState.current.scrollLeft - (x - dragState.current.startX);
   };
   const [viewMode, setViewMode] = useState("faturas");
-  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
+  const [selectedMonth, setSelectedMonth] = useState(referenceMonthKey());
 
   const cardName = (id) => id ? (data.cards.find((c) => c.id === id)?.name || "-") : "Dinheiro/Pix";
   const personName = (id) => firstName(data.profiles.find((u) => u.id === id)?.name) || "-";
@@ -2270,7 +2277,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
   useEffect(() => {
     if (viewMode !== "faturas") return;
-    const now = currentMonthKey();
+    const now = referenceMonthKey();
     const idx = invoiceMonthsList.indexOf(now);
     const anchorIdx = Math.max(idx - 1, 0);
     const anchorMonth = invoiceMonthsList[anchorIdx];
@@ -2606,7 +2613,7 @@ function RecurringReviewModal({ profile, data, isAdmin, refresh, onClose }) {
 }
 
 function MemberOverview({ profile, data, refresh }) {
-  const now = currentMonthKey();
+  const now = referenceMonthKey();
   const [showRecurringReview, setShowRecurringReview] = useState(false);
   const myCards = accessibleCards(data, profile.id);
   const myExpenses = data.expenses.filter((e) => e.profile_id === profile.id);
@@ -2624,7 +2631,7 @@ function MemberOverview({ profile, data, refresh }) {
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16">
       <div className="flex items-center justify-between">
-        <ScreenHeader title={`Olá, ${profile.name.split(" ")[0]}`} subtitle="Seu mês" />
+        <ScreenHeader title={`Olá, ${profile.name.split(" ")[0]}`} subtitle={`Fatura de ${monthLabel(now)}`} />
         <button onClick={handleShare} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mb-4" style={{ border: `1px solid ${C.border}` }}>
           <Share2 size={15} color={C.gold} />
         </button>
@@ -2652,7 +2659,7 @@ function MemberOverview({ profile, data, refresh }) {
 /* ---------------------------------- ADMIN: OVERVIEW ---------------------------------- */
 
 function AdminOverview({ profile, data, refresh }) {
-  const now = currentMonthKey();
+  const now = referenceMonthKey();
   const prevMonth = addMonthsToKey(now, -1);
   const [scopeIds, setScopeIds] = useState([]);
   const [showRecurringReview, setShowRecurringReview] = useState(false);
@@ -2687,7 +2694,7 @@ function AdminOverview({ profile, data, refresh }) {
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16">
       <div className="flex items-center justify-between">
-        <ScreenHeader title="Visão geral" subtitle="Este mês" />
+        <ScreenHeader title="Visão geral" subtitle={`Fatura de ${monthLabel(now)}`} />
         <button onClick={handleShare} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mb-4" style={{ border: `1px solid ${C.border}` }}>
           <Share2 size={15} color={C.gold} />
         </button>
@@ -2742,7 +2749,7 @@ function AdminOverview({ profile, data, refresh }) {
 function AdminCards({ data, refresh, embedded }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
-  const now = currentMonthKey();
+  const now = referenceMonthKey();
 
   const handleSave = async (card) => { await saveCard(card); await refresh(); };
   const handleDelete = async (card) => { if (!window.confirm(`Excluir o cartão "${card.name}"? Isso também remove os gastos lançados nele.`)) return; await deleteCard(card); await refresh(); };
@@ -2801,7 +2808,7 @@ function personColorFor(name, fallbackIndex) {
   return fallback[fallbackIndex % fallback.length];
 }
 function monthKeysForPeriod(period, customRange) {
-  const now = currentMonthKey();
+  const now = referenceMonthKey();
   if (period === "last_month") return [addMonthsToKey(now, -1)];
   const map = { "3m": 3, "6m": 6 };
   if (map[period]) return Array.from({ length: map[period] }, (_, i) => addMonthsToKey(now, -i));
@@ -2906,7 +2913,7 @@ function ActivityLogScreen({ data, embedded }) {
 }
 
 function ReportsScreen({ profile, data, refresh, isAdmin }) {
-  const now = currentMonthKey();
+  const now = referenceMonthKey();
   const prevMonth = addMonthsToKey(now, -1);
   const [view, setView] = useState("charts");
   const [period, setPeriod] = useState("month");
@@ -2968,7 +2975,7 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
   const prevYearTotals = yearTotals(summaryYear - 1);
   const yearPctDiff = (curr, prev) => (prev > 0 ? ((curr - prev) / prev) * 100 : null);
 
-  const heroLabel = period === "month" ? "Total do mês" : `Total (${periodPresetLabel(period)})`;
+  const heroLabel = period === "month" ? `Total de ${monthLabel(now)}` : `Total (${periodPresetLabel(period)})`;
   const scopeLabel = !isAdmin ? "Seu relatório" : selectedIds.length === 0 ? "Todos" : scopeProfiles.map((p) => firstName(p.name)).join(" e ");
 
   if (view === "goals") {
