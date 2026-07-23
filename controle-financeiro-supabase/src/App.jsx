@@ -7,7 +7,7 @@ import {
   CreditCard, Plus, Pencil, Trash2, LogOut, LayoutGrid, Wallet, PieChart as PieIcon,
   ListChecks, X, Check, Lock, ChevronRight, Download, AlertTriangle,
   Repeat, Target, Clock, Sun, Moon, Search, Paperclip, TrendingUp, TrendingDown,
-  DollarSign, CheckSquare, Square, Zap, Share2, Percent, PiggyBank, ArrowDownCircle, ArrowUpCircle, Calendar, Camera, History, BellRing,
+  DollarSign, CheckSquare, Square, Zap, Share2, Percent, PiggyBank, ArrowDownCircle, ArrowUpCircle, Calendar, Camera, History, BellRing, SlidersHorizontal,
 } from "lucide-react";
 
 /* ---------------------------------- tokens ---------------------------------- */
@@ -1546,11 +1546,8 @@ function ExpenseRow({ exp, cardName, personName, creatorName, contextMonth, onEd
         </div>
       </div>
       <Amount value={displayAmount} size="text-sm" tone={exp.is_refund ? "green" : hasOverride ? "gold" : undefined} />
-      {exp.is_recurring && contextMonth && onEditMonthOverride && (
-        <button onClick={() => onEditMonthOverride(exp)} title="Ajustar valor só deste mês"><DollarSign size={14} color={hasOverride ? C.gold : C.muted} /></button>
-      )}
-      <button onClick={() => onEdit(exp)}><Pencil size={14} color={C.muted} /></button>
-      <button onClick={() => onDelete(exp)}><Trash2 size={14} color={C.rose} /></button>
+      <button onClick={() => onEdit(exp)} className="ml-1"><Pencil size={14} color={hasOverride ? C.gold : C.muted} /></button>
+      <button onClick={() => onDelete(exp)} className="ml-1"><Trash2 size={14} color={C.rose} /></button>
     </div>
   );
 }
@@ -3747,8 +3744,8 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
       <Panel>
         <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Evolução mensal</h4>
         <ResponsiveContainer width="100%" height={230}>
-          <BarChart data={evolution} barGap={4}>
-            <XAxis dataKey="month" stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} />
+          <BarChart data={evolution} barGap={2} barCategoryGap="28%">
+            <XAxis dataKey="month" stroke={C.muted} fontSize={10} axisLine={false} tickLine={false} interval={0} />
             <YAxis stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} tickFormatter={compactNumber} width={38} />
             <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} cursor={{ fill: "rgba(124,58,237,0.06)" }} />
             {scopeProfiles.map((u, i) => (
@@ -3788,28 +3785,47 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
         ) : compareCategoryRows.length === 0 ? (
           <EmptyState icon={<PieIcon size={28} />} text="Sem gastos nos meses escolhidos." />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                  <th className="text-left py-2 text-[11px] font-medium uppercase" style={{ color: C.muted }}>Categoria</th>
-                  {compareMonths.map((mk) => (
-                    <th key={mk} className="text-right py-2 text-[11px] font-medium capitalize" style={{ color: C.muted }}>{monthLabel(mk)}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {compareCategoryRows.map((r) => (
-                  <tr key={r.cat} style={{ borderBottom: `1px solid ${C.border}` }}>
-                    <td className="py-2" style={{ color: C.text }}>{r.cat}</td>
-                    {r.values.map((v, i) => (
-                      <td key={i} className="text-right py-2"><Amount value={v} size="text-xs" /></td>
+          <>
+            {/* Celular: um card por categoria, mês/valor bem separados */}
+            <div className="sm:hidden space-y-3">
+              {compareCategoryRows.map((r) => (
+                <div key={r.cat} className="rounded-xl p-3" style={{ background: C.bgSoft, border: `1px solid ${C.border}` }}>
+                  <div className="text-sm font-medium mb-2" style={{ color: C.text }}>{r.cat}</div>
+                  <div className="space-y-1.5">
+                    {compareMonths.map((mk, i) => (
+                      <div key={mk} className="flex items-center justify-between">
+                        <span className="text-xs capitalize" style={{ color: C.muted }}>{monthLabel(mk)}</span>
+                        <Amount value={r.values[i]} size="text-sm" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Telas maiores: tabela */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                    <th className="text-left py-2 text-[11px] font-medium uppercase" style={{ color: C.muted }}>Categoria</th>
+                    {compareMonths.map((mk) => (
+                      <th key={mk} className="text-right py-2 text-[11px] font-medium capitalize" style={{ color: C.muted }}>{monthLabel(mk)}</th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {compareCategoryRows.map((r) => (
+                    <tr key={r.cat} style={{ borderBottom: `1px solid ${C.border}` }}>
+                      <td className="py-2" style={{ color: C.text }}>{r.cat}</td>
+                      {r.values.map((v, i) => (
+                        <td key={i} className="text-right py-2"><Amount value={v} size="text-xs" /></td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </Panel>
 
