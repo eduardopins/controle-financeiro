@@ -621,14 +621,12 @@ function invoiceDueDate(monthKey, dueDay) {
   return new Date(y, m - 1, dueDay);
 }
 function invoicePaymentStatus(card, monthKey, invoiceTotal, paidTotal) {
+  const fullyPaid = invoiceTotal > 0 && paidTotal >= invoiceTotal - 0.005;
+  if (fullyPaid) return { label: "fatura paga", tone: "green" };
   const info = invoiceStatusInfo(card, monthKey);
-  if (info.label === "futura") return { label: "futura", tone: "muted" };
+  if (info.label === "futura") return { label: "fatura futura", tone: "muted" };
   if (info.label === "aberta") return { label: "fatura atual", tone: "gold" };
-  if (invoiceTotal > 0 && paidTotal >= invoiceTotal - 0.005) return { label: "paga", tone: "green" };
-  const dueDate = invoiceDueDate(monthKey, card.due_day);
-  const overdue = new Date() > dueDate;
-  if (overdue) return { label: "atrasada", tone: "rose" };
-  return { label: "em aberto", tone: "amber" };
+  return { label: "fatura vencida", tone: "rose" };
 }
 
 async function saveCard(card) {
@@ -2118,13 +2116,32 @@ function GoalsScreen({ profile, data, refresh, embedded }) {
   );
 }
 
-function invoiceMonths(now) {
-  return Array.from({ length: 14 }, (_, i) => addMonthsToKey(now, i - 1));
+function invoiceMonths(expenses, cardIds, now) {
+  const forward = Array.from({ length: 13 }, (_, i) => addMonthsToKey(now, i));
+  const pastSet = new Set([addMonthsToKey(now, -1)]);
+  expenses.filter((e) => cardIds.includes(e.card_id)).forEach((e) => {
+    if (e.is_recurring) {
+      let mk = e.first_month;
+      let guard = 0;
+      while (diffMonths(mk, now) > 0 && guard < 600) {
+        pastSet.add(mk);
+        mk = addMonthsToKey(mk, 1);
+        guard++;
+      }
+    } else {
+      for (let i = 0; i < e.installments; i++) {
+        const mk = addMonthsToKey(e.first_month, i);
+        if (diffMonths(mk, now) > 0) pastSet.add(mk);
+      }
+    }
+  });
+  const past = Array.from(pastSet).sort();
+  return [...past, ...forward];
 }
 function invoiceStatusInfo(card, monthKey) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const currentInvoiceMonth = invoiceMonthForPurchase(todayStr, card.closing_day);
-  const diff = diffMonths(monthKey, currentInvoiceMonth);
+  const diff = diffMonths(currentInvoiceMonth, monthKey);
   if (diff > 0) return { label: "futura", tone: "muted" };
   if (diff === 0) return { label: "aberta", tone: "green" };
   return { label: "fechada", tone: "muted" };
@@ -2450,8 +2467,9 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
   const invoiceScopedExpenses = baseExpenses.filter((e) => !isAdmin || filterPerson === "all" || e.profile_id === filterPerson);
   const invoiceCards = filterCard === "all" ? myCards : myCards.filter((c) => c.id === filterCard);
+  const invoiceCardIdsForMonths = [...new Set([...invoiceScopedExpenses.map((e) => e.card_id).filter(Boolean), ...myCards.map((c) => c.id)])];
   const invoiceNow = openInvoiceMonth(myCards);
-  const invoiceMonthsList = invoiceMonths(invoiceNow).filter((mk) => /^\d{4}-\d{2}$/.test(mk));
+  const invoiceMonthsList = invoiceMonths(invoiceScopedExpenses, invoiceCardIdsForMonths, invoiceNow).filter((mk) => /^\d{4}-\d{2}$/.test(mk));
   const invoiceLineItems = invoiceScopedExpenses
     .filter((e) => (filterCard === "all" || e.card_id === filterCard) && isDueIn(e, selectedMonth))
     .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date));
@@ -2459,10 +2477,8 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const invoiceSingleCard = filterCard !== "all" ? invoiceCards.find((c) => c.id === filterCard) : null;
   const displayCard = invoiceSingleCard || invoiceCards[0] || myCards[0] || null;
   const invoiceStatus = displayCard ? invoiceStatusInfo(displayCard, selectedMonth) : null;
-  const invoicePaidTotal = invoiceSingleCard ? paidForInvoice(data.invoicePayments, invoiceSingleCard.id, selectedMonth) : 0;
-  const paymentStatus = invoiceSingleCard
-    ? invoicePaymentStatus(invoiceSingleCard, selectedMonth, invoiceTotal, invoicePaidTotal)
-    : (invoiceStatus ? { label: invoiceStatus.label === "aberta" ? "fatura atual" : invoiceStatus.label === "futura" ? "futura" : "fechada", tone: invoiceStatus.label === "aberta" ? "gold" : "muted" } : null);
+  const invoicePaidTotal = displayCard ? paidForInvoice(data.invoicePayments, displayCard.id, selectedMonth) : 0;
+  const paymentStatus = displayCard ? invoicePaymentStatus(displayCard, selectedMonth, invoiceTotal, invoicePaidTotal) : null;
   const [showPayModal, setShowPayModal] = useState(false);
   const [showPayPicker, setShowPayPicker] = useState(false);
   const handlePayInvoice = async (amount) => {
@@ -2600,10 +2616,10 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
                 className="flex gap-1.5 overflow-x-auto flex-1 pb-1 select-none" style={{ scrollbarWidth: "none", cursor: "grab", WebkitOverflowScrolling: "touch" }}>
                 {invoiceMonthsList.map((mk) => {
                   const active = mk === selectedMonth;
-                  const status = invoiceSingleCard ? invoiceStatusInfo(invoiceSingleCard, mk) : null;
+                  const status = displayCard ? invoiceStatusInfo(displayCard, mk) : null;
                   const tone = status?.tone === "green" ? C.green : status?.tone === "amber" ? C.amber : C.muted;
                   return (
-                    <button key={mk} ref={(el) => { monthRefs.current[mk] = el; }} onClick={() => setSelectedMonth(mk)} className="shrink-0 px-3.5 py-2 rounded-xl text-xs font-medium transition-all capitalize"
+                    <button key={mk} ref={(el) => { monthRefs.current[mk] = el; }} onClick={() => setSelectedMonth(mk)} className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-medium transition-all capitalize"
                       style={{ background: active ? C.gold : "transparent", color: active ? "var(--gold-contrast)" : tone, border: `1px solid ${active ? C.gold : C.border}` }}>
                       {monthLabel(mk)}
                     </button>
