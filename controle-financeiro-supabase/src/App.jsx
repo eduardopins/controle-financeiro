@@ -689,6 +689,16 @@ function invoicePaymentStatus(card, monthKey, invoiceTotal, paidTotal) {
   return { label: "fatura vencida", tone: "rose" };
 }
 
+async function syncPluggyCards() {
+  const { data, error } = await supabase.functions.invoke("pluggy-sync-cards");
+  if (error) throw error;
+  return data;
+}
+async function applyPluggyValues(cardId, updates) {
+  const { error } = await supabase.from("cards").update(updates).eq("id", cardId);
+  if (error) throw error;
+}
+
 async function saveCard(card) {
   const { memberIds, ...rest } = card;
   const isNew = !card.id;
@@ -3328,10 +3338,26 @@ function AdminOverview({ profile, data, refresh }) {
 function AdminCards({ data, refresh, embedded }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState("");
   const now = openInvoiceMonth(data.cards);
 
   const handleSave = async (card) => { await saveCard(card); await refresh(); };
   const handleDelete = async (card) => { if (!window.confirm(`Excluir o cartão "${card.name}"? Isso também remove os gastos lançados nele.`)) return; await deleteCard(card); await refresh(); };
+  const handleSync = async () => {
+    setSyncing(true); setSyncError("");
+    try { await syncPluggyCards(); await refresh(); }
+    catch (e) { setSyncError(friendlyError(e)); }
+    finally { setSyncing(false); }
+  };
+  const handleApplyPluggy = async (card) => {
+    const updates = {};
+    if (card.pluggy_close_date) updates.closing_day = new Date(card.pluggy_close_date + "T00:00:00").getDate();
+    if (card.pluggy_due_date) updates.due_day = new Date(card.pluggy_due_date + "T00:00:00").getDate();
+    if (card.pluggy_credit_limit != null) updates.card_limit = card.pluggy_credit_limit;
+    await applyPluggyValues(card.id, updates);
+    await refresh();
+  };
 
   const activeCards = data.cards.filter((c) => !c.archived);
   const totalLimit = activeCards.reduce((s, c) => s + c.card_limit, 0);
@@ -3340,6 +3366,7 @@ function AdminCards({ data, refresh, embedded }) {
     return s + Math.max(c.card_limit - used, 0);
   }, 0);
   const sortedCards = [...data.cards].sort((a, b) => (a.archived === b.archived ? 0 : a.archived ? 1 : -1));
+  const anyLinked = data.cards.some((c) => c.pluggy_account_id);
 
   return (
     <div className={embedded ? "" : "max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16"}>
@@ -3351,11 +3378,20 @@ function AdminCards({ data, refresh, embedded }) {
         </div>
       )}
       <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Novo cartão</Btn>
+      {anyLinked && (
+        <button onClick={handleSync} disabled={syncing} className="w-full flex items-center justify-center gap-2 mt-2 py-2.5 rounded-xl text-sm font-medium" style={{ background: C.bgSoft, border: `1px solid ${C.border}`, color: C.text }}>
+          <BellRing size={14} color={C.gold} /> {syncing ? "Sincronizando..." : "Sincronizar com o banco (Open Finance)"}
+        </button>
+      )}
+      {syncError && <p className="text-xs mt-2" style={{ color: C.rose }}>{syncError}</p>}
       <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
         {data.cards.length === 0 && <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão cadastrado ainda." /></Panel>}
         {sortedCards.map((c) => {
           const used = netUsedForCard(data.expenses, data.invoicePayments, c.id, now);
           const names = data.profiles.filter((u) => c.memberIds.includes(u.id)).map((u) => firstName(u.name)).join(", ") || "ninguém ainda";
+          const closeDiff = c.pluggy_close_date && new Date(c.pluggy_close_date + "T00:00:00").getDate() !== c.closing_day;
+          const dueDiff = c.pluggy_due_date && new Date(c.pluggy_due_date + "T00:00:00").getDate() !== c.due_day;
+          const limitDiff = c.pluggy_credit_limit != null && Math.abs(c.pluggy_credit_limit - c.card_limit) > 1;
           return (
             <div key={c.id} style={{ opacity: c.archived ? 0.55 : 1 }}>
               <CardWidget card={c} used={used} nextAmount={nextInvoiceProjection(c.id, data.expenses, now)} />
@@ -3371,6 +3407,43 @@ function AdminCards({ data, refresh, embedded }) {
                   </div>
                 </div>
               </Panel>
+              {c.pluggy_account_id && (
+                <Panel className="mt-2 !py-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] uppercase tracking-wide" style={{ color: C.muted }}>Comparar com o banco</span>
+                    {c.pluggy_synced_at && <span className="text-[10px]" style={{ color: C.muted }}>sync {formatShortDate(c.pluggy_synced_at.slice(0, 10))}</span>}
+                  </div>
+                  <div className="space-y-1 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span style={{ color: C.muted }}>Fechamento</span>
+                      <span style={{ color: closeDiff ? C.rose : C.text }}>
+                        app: dia {c.closing_day} {c.pluggy_close_date && `· banco: dia ${new Date(c.pluggy_close_date + "T00:00:00").getDate()}`}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span style={{ color: C.muted }}>Vencimento</span>
+                      <span style={{ color: dueDiff ? C.rose : C.text }}>
+                        app: dia {c.due_day} {c.pluggy_due_date && `· banco: dia ${new Date(c.pluggy_due_date + "T00:00:00").getDate()}`}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span style={{ color: C.muted }}>Limite</span>
+                      <span style={{ color: limitDiff ? C.rose : C.text }}>
+                        app: {brl(c.card_limit)} {c.pluggy_credit_limit != null && `· banco: ${brl(c.pluggy_credit_limit)}`}
+                      </span>
+                    </div>
+                    {c.pluggy_available_limit != null && (
+                      <div className="flex items-center justify-between">
+                        <span style={{ color: C.muted }}>Disponível (banco)</span>
+                        <Amount value={c.pluggy_available_limit} size="text-xs" tone="green" />
+                      </div>
+                    )}
+                  </div>
+                  {(closeDiff || dueDiff || limitDiff) && (
+                    <button onClick={() => handleApplyPluggy(c)} className="text-xs font-medium mt-2" style={{ color: C.gold }}>Usar valores do banco</button>
+                  )}
+                </Panel>
+              )}
             </div>
           );
         })}
