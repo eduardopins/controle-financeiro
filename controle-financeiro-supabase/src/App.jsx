@@ -83,12 +83,22 @@ function addMonthsToKey(key, n) {
   const normalized = ((total % 12) + 12) % 12;
   return `${y + Math.floor(total / 12)}-${String(normalized + 1).padStart(2, "0")}`;
 }
-const last6Months = () => { const now = referenceMonthKey(); return Array.from({ length: 6 }, (_, i) => addMonthsToKey(now, i - 5)); };
+const last6Months = () => { const now = currentMonthKey(); return Array.from({ length: 6 }, (_, i) => addMonthsToKey(now, i - 5)); };
 
 // "Mês de referência": como as compras do cartão feitas após o fechamento já caem na
 // fatura seguinte, usamos o mês seguinte como o "mês corrente" nas telas de análise
 // (Visão geral, Relatórios, Metas) — é a fatura que ainda está sendo formada/vai ser paga.
-function referenceMonthKey() { return addMonthsToKey(currentMonthKey(), 1); }
+// "Mês de referência": como as compras do cartão feitas após o fechamento já caem na
+// fatura seguinte, a "fatura atual" (a que ainda está aberta/sendo formada) pode já ser
+// do mês seguinte ao calendário, dependendo do dia de fechamento de cada cartão.
+// Usamos o fechamento mais adiantado entre os cartões (o que já "virou" primeiro) como
+// referência única para as telas que somam vários cartões (e dinheiro) de uma vez.
+function openInvoiceMonth(cards, todayStr = new Date().toISOString().slice(0, 10)) {
+  const withClosing = (cards || []).filter((c) => c.closing_day);
+  if (withClosing.length === 0) return currentMonthKey();
+  const earliestClosing = Math.min(...withClosing.map((c) => c.closing_day));
+  return invoiceMonthForPurchase(todayStr, earliestClosing);
+}
 
 // Compras feitas depois do dia de fechamento do cartão caem na fatura do mês seguinte
 // (o mês corrente já fechou); no dia do fechamento ou antes, ainda entram no mês atual.
@@ -1440,7 +1450,7 @@ function projectMonthEnd(expenses, profileIds, monthKey = currentMonthKey()) {
 }
 
 function IncomeSection({ profile, data, refresh, scopeIds, scopeLabel }) {
-  const now = referenceMonthKey();
+  const now = openInvoiceMonth(data.cards);
   const ids = scopeIds && scopeIds.length > 0 ? scopeIds : [profile.id];
   const myIncomes = (data.incomes || []).filter((i) => i.profile_id === profile.id);
   const incomeMonth = (data.incomes || []).filter((i) => ids.includes(i.profile_id) && isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
@@ -1902,7 +1912,7 @@ function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
 /* ---------------------------------- ---------------------------------- */
 
 function GoalsScreen({ profile, data, refresh, embedded }) {
-  const now = referenceMonthKey();
+  const now = openInvoiceMonth(data.cards);
   const dueNow = data.expenses.filter((e) => e.profile_id === profile.id && isDueIn(e, now));
   const myBudgets = data.budgets.filter((b) => b.profile_id === profile.id);
   const myCategories = [...CATEGORIES, ...(data.customCategories || []).filter((c) => c.profile_id === profile.id).map((c) => c.name)];
@@ -2208,7 +2218,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
     el.scrollLeft = dragState.current.scrollLeft - (x - dragState.current.startX);
   };
   const [viewMode, setViewMode] = useState("faturas");
-  const [selectedMonth, setSelectedMonth] = useState(referenceMonthKey());
+  const [selectedMonth, setSelectedMonth] = useState(() => openInvoiceMonth(isAdmin ? data.cards : accessibleCards(data, profile.id)));
 
   const cardName = (id) => id ? (data.cards.find((c) => c.id === id)?.name || "-") : "Dinheiro/Pix";
   const personName = (id) => firstName(data.profiles.find((u) => u.id === id)?.name) || "-";
@@ -2277,7 +2287,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
   useEffect(() => {
     if (viewMode !== "faturas") return;
-    const now = referenceMonthKey();
+    const now = openInvoiceMonth(myCards);
     const idx = invoiceMonthsList.indexOf(now);
     const anchorIdx = Math.max(idx - 1, 0);
     const anchorMonth = invoiceMonthsList[anchorIdx];
@@ -2613,9 +2623,9 @@ function RecurringReviewModal({ profile, data, isAdmin, refresh, onClose }) {
 }
 
 function MemberOverview({ profile, data, refresh }) {
-  const now = referenceMonthKey();
-  const [showRecurringReview, setShowRecurringReview] = useState(false);
   const myCards = accessibleCards(data, profile.id);
+  const now = openInvoiceMonth(myCards);
+  const [showRecurringReview, setShowRecurringReview] = useState(false);
   const myExpenses = data.expenses.filter((e) => e.profile_id === profile.id);
   const myMonthTotal = myExpenses.filter((e) => isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
   const myIncomeMonth = (data.incomes || []).filter((i) => i.profile_id === profile.id && isIncomeDueIn(i, now)).reduce((s, i) => s + incomeMonthlyValue(i), 0);
@@ -2659,7 +2669,7 @@ function MemberOverview({ profile, data, refresh }) {
 /* ---------------------------------- ADMIN: OVERVIEW ---------------------------------- */
 
 function AdminOverview({ profile, data, refresh }) {
-  const now = referenceMonthKey();
+  const now = openInvoiceMonth(data.cards);
   const prevMonth = addMonthsToKey(now, -1);
   const [scopeIds, setScopeIds] = useState([]);
   const [showRecurringReview, setShowRecurringReview] = useState(false);
@@ -2749,7 +2759,7 @@ function AdminOverview({ profile, data, refresh }) {
 function AdminCards({ data, refresh, embedded }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
-  const now = referenceMonthKey();
+  const now = openInvoiceMonth(data.cards);
 
   const handleSave = async (card) => { await saveCard(card); await refresh(); };
   const handleDelete = async (card) => { if (!window.confirm(`Excluir o cartão "${card.name}"? Isso também remove os gastos lançados nele.`)) return; await deleteCard(card); await refresh(); };
@@ -2807,8 +2817,8 @@ function personColorFor(name, fallbackIndex) {
   const fallback = ["#5C86A8", "#C7A24C", "#8C6FA8", "#4F9B93"];
   return fallback[fallbackIndex % fallback.length];
 }
-function monthKeysForPeriod(period, customRange) {
-  const now = referenceMonthKey();
+function monthKeysForPeriod(period, customRange, cards) {
+  const now = openInvoiceMonth(cards);
   if (period === "last_month") return [addMonthsToKey(now, -1)];
   const map = { "3m": 3, "6m": 6 };
   if (map[period]) return Array.from({ length: map[period] }, (_, i) => addMonthsToKey(now, -i));
@@ -2913,7 +2923,8 @@ function ActivityLogScreen({ data, embedded }) {
 }
 
 function ReportsScreen({ profile, data, refresh, isAdmin }) {
-  const now = referenceMonthKey();
+  const relevantCards = isAdmin ? data.cards : accessibleCards(data, profile.id);
+  const now = openInvoiceMonth(relevantCards);
   const prevMonth = addMonthsToKey(now, -1);
   const [view, setView] = useState("charts");
   const [period, setPeriod] = useState("month");
@@ -2928,7 +2939,7 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
     : data.profiles.filter((p) => p.id === profile.id);
   const scopeIds = scopeProfiles.map((p) => p.id);
 
-  const monthKeys = monthKeysForPeriod(period, customRange);
+  const monthKeys = monthKeysForPeriod(period, customRange, relevantCards);
   const byCategory = categoryTotalsForMonths(data.expenses, monthKeys, scopeIds);
   const totalPeriod = byCategory.reduce((s, d) => s + d.value, 0);
   const comparison = categoryComparison(data.expenses, now, compareMonth, scopeIds);
