@@ -727,9 +727,101 @@ function Login({ onLogin, theme, onToggleTheme }) {
 
 /* ---------------------------------- TOPBAR ---------------------------------- */
 
+function AvatarCropModal({ file, onCancel, onCropped }) {
+  const FRAME = 280;
+  const OUTPUT = 480;
+  const [imgUrl, setImgUrl] = useState(null);
+  const [natural, setNatural] = useState({ w: 1, h: 1 });
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const dragRef = useRef(null);
+
+  useEffect(() => {
+    const url = URL.createObjectURL(file);
+    setImgUrl(url);
+    const img = new Image();
+    img.onload = () => setNatural({ w: img.naturalWidth, h: img.naturalHeight });
+    img.src = url;
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  const baseScale = Math.max(FRAME / natural.w, FRAME / natural.h) || 1;
+  const effectiveScale = baseScale * zoom;
+  const dispW = natural.w * effectiveScale;
+  const dispH = natural.h * effectiveScale;
+
+  const clamp = (o) => {
+    const maxX = Math.max((dispW - FRAME) / 2, 0);
+    const maxY = Math.max((dispH - FRAME) / 2, 0);
+    return { x: Math.min(Math.max(o.x, -maxX), maxX), y: Math.min(Math.max(o.y, -maxY), maxY) };
+  };
+
+  const onPointerDown = (e) => { dragRef.current = { x: e.clientX, y: e.clientY, origin: offset }; e.currentTarget.setPointerCapture(e.pointerId); };
+  const onPointerMove = (e) => {
+    if (!dragRef.current) return;
+    setOffset(clamp({ x: dragRef.current.origin.x + (e.clientX - dragRef.current.x), y: dragRef.current.origin.y + (e.clientY - dragRef.current.y) }));
+  };
+  const onPointerUp = () => { dragRef.current = null; };
+
+  const confirm = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = OUTPUT; canvas.height = OUTPUT;
+    const ctx = canvas.getContext("2d");
+    const img = new Image();
+    img.onload = () => {
+      const ratio = OUTPUT / FRAME;
+      const drawW = dispW * ratio, drawH = dispH * ratio;
+      const drawX = OUTPUT / 2 - drawW / 2 + offset.x * ratio;
+      const drawY = OUTPUT / 2 - drawH / 2 + offset.y * ratio;
+      ctx.drawImage(img, drawX, drawY, drawW, drawH);
+      canvas.toBlob((blob) => {
+        onCropped(new File([blob], "avatar.jpg", { type: "image/jpeg" }));
+      }, "image/jpeg", 0.92);
+    };
+    img.src = imgUrl;
+  };
+
+  return (
+    <Modal title="Ajustar foto" onClose={onCancel}>
+      <p className="text-xs mb-3" style={{ color: C.muted }}>A foto de perfil precisa ser quadrada. Arraste pra posicionar e use o zoom pra ajustar.</p>
+      <div onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}
+        className="relative mx-auto overflow-hidden rounded-2xl mb-4 select-none" style={{ width: FRAME, height: FRAME, background: C.bgSoft, touchAction: "none", cursor: "grab" }}>
+        {imgUrl && (
+          <img src={imgUrl} draggable={false} alt="" style={{
+            position: "absolute", left: "50%", top: "50%", width: dispW, height: dispH,
+            transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px)`, pointerEvents: "none",
+          }} />
+        )}
+      </div>
+      <div className="flex items-center gap-3 mb-5">
+        <span className="text-xs shrink-0" style={{ color: C.muted }}>Zoom</span>
+        <input type="range" min="1" max="3" step="0.05" value={zoom}
+          onChange={(e) => { setZoom(parseFloat(e.target.value)); setOffset((o) => clamp(o)); }} className="flex-1" />
+      </div>
+      <div className="flex gap-2">
+        <Btn variant="ghost" onClick={onCancel} full>Cancelar</Btn>
+        <Btn onClick={confirm} full>Usar foto</Btn>
+      </div>
+    </Modal>
+  );
+}
+
 function Avatar({ profile, size = 32, editable, onUpload, uploading }) {
   const inputRef = useRef(null);
+  const [pendingFile, setPendingFile] = useState(null);
   const initial = firstName(profile?.name || "?").charAt(0).toUpperCase();
+
+  const handleFileSelected = (file) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      if (Math.abs(img.naturalWidth - img.naturalHeight) <= 2) onUpload(file);
+      else setPendingFile(file);
+    };
+    img.src = url;
+  };
+
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       {profile?.avatar_url ? (
@@ -748,8 +840,12 @@ function Avatar({ profile, size = 32, editable, onUpload, uploading }) {
             <Camera size={Math.max(size * 0.22, 9)} />
           </button>
           <input ref={inputRef} type="file" accept="image/*" className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ""; }} />
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelected(f); e.target.value = ""; }} />
         </>
+      )}
+      {pendingFile && (
+        <AvatarCropModal file={pendingFile} onCancel={() => setPendingFile(null)}
+          onCropped={(f) => { setPendingFile(null); onUpload(f); }} />
       )}
     </div>
   );
@@ -3362,7 +3458,11 @@ function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, d
         <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldSoft})`, color: "var(--gold-contrast)" }}>
           <Wallet size={16} />
         </div>
-        <span className="font-bold text-sm truncate" style={{ fontFamily: "'Manrope', sans-serif", color: C.text }}>Controle Financeiro</span>
+        <span className="font-bold text-sm truncate flex-1" style={{ fontFamily: "'Manrope', sans-serif", color: C.text }}>Controle Financeiro</span>
+        <button onClick={() => setShowPinSettings(true)} className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all" style={{ border: `1px solid ${C.border}` }} title={hasPin ? "Trocar PIN" : "Criar PIN de acesso"}>
+          <Lock size={12} color={hasPin ? C.gold : C.muted} />
+        </button>
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
       </div>
 
       <button onClick={() => setShowSearch(true)} className="flex items-center justify-between gap-2.5 px-3 py-2.5 mb-3 rounded-xl text-sm" style={{ background: C.bgSoft, border: `1px solid ${C.border}`, color: C.muted }}>
@@ -3370,6 +3470,7 @@ function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, d
         <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ border: `1px solid ${C.border}` }}>/</span>
       </button>
       {showSearch && <GlobalSearchModal profile={profile} data={data} onClose={() => setShowSearch(false)} />}
+      {showPinSettings && <PinSettingsModal hasPin={hasPin} onSetPin={onSetPin} onClose={() => setShowPinSettings(false)} />}
 
       <nav className="flex flex-col gap-1 flex-1">
         {tabs.map((t) => {
@@ -3386,22 +3487,15 @@ function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, d
         })}
       </nav>
 
-      <div className="flex items-center gap-2 mb-3 px-1">
-        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
-        <button onClick={() => setShowPinSettings(true)} className="w-8 h-8 rounded-full flex items-center justify-center transition-all" style={{ border: `1px solid ${C.border}` }} title={hasPin ? "Trocar PIN" : "Criar PIN de acesso"}>
-          <Lock size={14} color={hasPin ? C.gold : C.muted} />
-        </button>
-        <button onClick={onLogout} className="w-8 h-8 rounded-full flex items-center justify-center transition-all ml-auto" style={{ border: `1px solid ${C.border}` }}>
-          <LogOut size={14} color={C.muted} />
-        </button>
-      </div>
-      {showPinSettings && <PinSettingsModal hasPin={hasPin} onSetPin={onSetPin} onClose={() => setShowPinSettings(false)} />}
       <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-3" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
         <Avatar profile={profile} size={32} editable onUpload={handleAvatarUpload} uploading={uploading} />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="text-xs font-semibold truncate" style={{ color: C.text }}>{firstName(profile.name)}</div>
           {profile.role === "admin" && <div className="text-[10.5px]" style={{ color: C.muted }}>admin</div>}
         </div>
+        <button onClick={onLogout} className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all" style={{ border: `1px solid ${C.border}` }} title="Sair">
+          <LogOut size={13} color={C.muted} />
+        </button>
       </div>
       <div className="flex items-center gap-x-3 gap-y-1 flex-wrap px-1 text-[10px]" style={{ color: C.muted }}>
         <span><b style={{ color: C.text }}>N</b> gasto</span>
@@ -3640,7 +3734,11 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     const scrollY = window.scrollY;
-    try { setData(await loadAll()); } catch { setError("Não foi possível carregar os dados."); }
+    try {
+      const d = await loadAll();
+      setData(d);
+      setProfile((prev) => (prev ? d.profiles.find((p) => p.id === prev.id) || prev : prev));
+    } catch { setError("Não foi possível carregar os dados."); }
     requestAnimationFrame(() => window.scrollTo(0, scrollY));
   }, []);
 
