@@ -3549,20 +3549,20 @@ function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, d
   return (
     <div className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 lg:sticky lg:top-0 lg:h-screen px-4 py-6"
       style={{ background: "var(--bg-soft)", borderRight: `1px solid ${C.border}` }}>
-      <div className="flex items-center gap-2.5 px-2 mb-8">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldSoft})`, color: "var(--gold-contrast)" }}>
-          <Wallet size={16} />
+      <div className="flex items-center gap-2.5 px-2 mb-6">
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldSoft})`, color: "var(--gold-contrast)" }}>
+          <Wallet size={17} />
         </div>
-        <span className="font-bold text-sm truncate flex-1" style={{ fontFamily: "'Manrope', sans-serif", color: C.text }}>Controle Financeiro</span>
+        <span className="font-bold text-[13px] leading-tight flex-1" style={{ fontFamily: "'Manrope', sans-serif", color: C.text }}>Controle<br />Financeiro</span>
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
       </div>
 
-      <div className="flex gap-2 mb-3">
-        <button onClick={onAddExpense} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
+      <div className="flex gap-2 mb-5">
+        <button onClick={onAddExpense} className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-medium transition-all"
           style={{ background: C.gold, color: "var(--gold-contrast)" }}>
           <Plus size={15} /> Gasto
         </button>
-        <button onClick={onAddIncome} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
+        <button onClick={onAddIncome} className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-medium transition-all"
           style={{ background: C.bgSoft, color: C.text, border: `1px solid ${C.border}` }}>
           <Plus size={15} /> Receita
         </button>
