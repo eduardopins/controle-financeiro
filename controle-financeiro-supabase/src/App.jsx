@@ -728,7 +728,7 @@ function Login({ onLogin, theme, onToggleTheme }) {
 /* ---------------------------------- TOPBAR ---------------------------------- */
 
 function AvatarCropModal({ file, onCancel, onCropped }) {
-  const FRAME = 280;
+  const FRAME = 230;
   const OUTPUT = 480;
   const [imgUrl, setImgUrl] = useState(null);
   const [natural, setNatural] = useState({ w: 1, h: 1 });
@@ -782,27 +782,33 @@ function AvatarCropModal({ file, onCancel, onCropped }) {
   };
 
   return (
-    <Modal title="Ajustar foto" onClose={onCancel}>
-      <p className="text-xs mb-3" style={{ color: C.muted }}>A foto de perfil precisa ser quadrada. Arraste pra posicionar e use o zoom pra ajustar.</p>
-      <div onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}
-        className="relative mx-auto overflow-hidden rounded-2xl mb-4 select-none" style={{ width: FRAME, height: FRAME, background: C.bgSoft, touchAction: "none", cursor: "grab" }}>
-        {imgUrl && (
-          <img src={imgUrl} draggable={false} alt="" style={{
-            position: "absolute", left: "50%", top: "50%", width: dispW, height: dispH,
-            transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px)`, pointerEvents: "none",
-          }} />
-        )}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(6,8,20,0.75)" }}>
+      <div className="w-full max-w-sm rounded-2xl p-5" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow, maxHeight: "94vh", overflowY: "auto" }}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>Ajustar foto</h3>
+          <button onClick={onCancel}><X size={18} color={C.muted} /></button>
+        </div>
+        <p className="text-xs mb-3" style={{ color: C.muted }}>A foto de perfil precisa ser quadrada. Arraste pra posicionar e use o zoom pra ajustar.</p>
+        <div onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}
+          className="relative mx-auto overflow-hidden rounded-2xl mb-4 select-none" style={{ width: FRAME, height: FRAME, background: C.bgSoft, touchAction: "none", cursor: "grab" }}>
+          {imgUrl && (
+            <img src={imgUrl} draggable={false} alt="" style={{
+              position: "absolute", left: "50%", top: "50%", width: dispW, height: dispH,
+              transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px)`, pointerEvents: "none",
+            }} />
+          )}
+        </div>
+        <div className="flex items-center gap-3 mb-5">
+          <span className="text-xs shrink-0" style={{ color: C.muted }}>Zoom</span>
+          <input type="range" min="1" max="3" step="0.05" value={zoom}
+            onChange={(e) => { setZoom(parseFloat(e.target.value)); setOffset((o) => clamp(o)); }} className="flex-1" />
+        </div>
+        <div className="flex gap-2">
+          <Btn variant="ghost" onClick={onCancel} full>Cancelar</Btn>
+          <Btn onClick={confirm} full>Usar foto</Btn>
+        </div>
       </div>
-      <div className="flex items-center gap-3 mb-5">
-        <span className="text-xs shrink-0" style={{ color: C.muted }}>Zoom</span>
-        <input type="range" min="1" max="3" step="0.05" value={zoom}
-          onChange={(e) => { setZoom(parseFloat(e.target.value)); setOffset((o) => clamp(o)); }} className="flex-1" />
-      </div>
-      <div className="flex gap-2">
-        <Btn variant="ghost" onClick={onCancel} full>Cancelar</Btn>
-        <Btn onClick={confirm} full>Usar foto</Btn>
-      </div>
-    </Modal>
+    </div>
   );
 }
 
@@ -859,9 +865,8 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh, showSearch, setShowSearch, hasPin, onSetPin }) {
+function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh, showSearch, setShowSearch }) {
   const [uploading, setUploading] = useState(false);
-  const [showPinSettings, setShowPinSettings] = useState(false);
   const handleAvatarUpload = async (file) => {
     setUploading(true);
     try {
@@ -880,13 +885,11 @@ function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh, showSe
         </div>
         <div className="flex items-center gap-3">
           <button onClick={() => setShowSearch(true)}><Search size={17} color={C.muted} /></button>
-          <button onClick={() => setShowPinSettings(true)} title={hasPin ? "Trocar PIN" : "Criar PIN de acesso"}><Lock size={16} color={hasPin ? C.gold : C.muted} /></button>
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <button onClick={onLogout}><LogOut size={17} color={C.muted} /></button>
         </div>
       </div>
       {showSearch && <GlobalSearchModal profile={profile} data={data} onClose={() => setShowSearch(false)} />}
-      {showPinSettings && <PinSettingsModal hasPin={hasPin} onSetPin={onSetPin} onClose={() => setShowPinSettings(false)} />}
     </div>
   );
 }
@@ -2968,11 +2971,11 @@ function PersonFilter({ profiles, selectedIds, onChange }) {
 
 /* ---------------------------------- ADMIN: REPORTS ---------------------------------- */
 
-function ReportTabs({ view, setView }) {
+function ReportTabs({ view, setView, isAdmin }) {
   const items = [
     { id: "charts", label: "Gráficos", icon: <PieIcon size={15} /> },
     { id: "goals", label: "Metas", icon: <Target size={15} /> },
-    { id: "activity", label: "Atividade", icon: <History size={15} /> },
+    ...(isAdmin ? [{ id: "activity", label: "Atividade", icon: <History size={15} /> }] : []),
   ];
   return (
     <div className="flex gap-2 mb-4">
@@ -3089,17 +3092,17 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
     return (
       <div className="max-w-3xl mx-auto px-4 pt-5 lg:max-w-6xl lg:px-10 lg:pt-8">
         <ScreenHeader title="Relatórios" subtitle={isAdmin ? "Panorama financeiro" : "Seu panorama financeiro"} />
-        <ReportTabs view={view} setView={setView} />
+        <ReportTabs view={view} setView={setView} isAdmin={isAdmin} />
         <GoalsScreen profile={profile} data={data} refresh={refresh} embedded />
       </div>
     );
   }
 
-  if (view === "activity") {
+  if (view === "activity" && isAdmin) {
     return (
       <div className="max-w-3xl mx-auto px-4 pt-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8">
         <ScreenHeader title="Relatórios" subtitle={isAdmin ? "Panorama financeiro" : "Seu panorama financeiro"} />
-        <ReportTabs view={view} setView={setView} />
+        <ReportTabs view={view} setView={setView} isAdmin={isAdmin} />
         <ActivityLogScreen data={data} embedded />
       </div>
     );
@@ -3143,7 +3146,7 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
         </table>
         <p style={{ fontSize: 10, color: "#999", marginTop: 24 }}>Gerado em {formatShortDate(new Date().toISOString().slice(0, 10))} pelo Controle Financeiro.</p>
       </div>
-      <ReportTabs view={view} setView={setView} />
+      <ReportTabs view={view} setView={setView} isAdmin={isAdmin} />
       <HeroPanel label={heroLabel} value={totalPeriod} />
 
       {isAdmin && (
@@ -3352,16 +3355,16 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
 function FloatingAddButton({ onAddExpense, onAddIncome }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="fixed z-40 flex flex-col items-end gap-2.5" style={{ right: 18, bottom: "calc(78px + env(safe-area-inset-bottom, 0px))" }}>
+    <div className="fixed z-40 flex flex-col items-end gap-2.5 lg:hidden" style={{ right: 18, bottom: "calc(78px + env(safe-area-inset-bottom, 0px))" }}>
       {open && (
         <>
-          <button onClick={() => { setOpen(false); onAddIncome(); }} className="flex items-center gap-2 pl-4 pr-3 py-2.5 rounded-full text-sm font-medium transition-all active:scale-95"
-            style={{ background: C.surfaceAlt, color: C.text, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
-            Receita <span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: C.gold, color: "var(--gold-contrast)" }}><Plus size={15} /></span>
+          <button onClick={() => { setOpen(false); onAddExpense(); }} className="flex items-center justify-between gap-3 pl-4 pr-1.5 py-1.5 rounded-full text-sm font-medium transition-all active:scale-95"
+            style={{ width: 148, background: C.surfaceAlt, color: C.text, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
+            Gasto <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: C.gold, color: "var(--gold-contrast)" }}><Plus size={16} /></span>
           </button>
-          <button onClick={() => { setOpen(false); onAddExpense(); }} className="flex items-center gap-2 pl-4 pr-3 py-2.5 rounded-full text-sm font-medium transition-all active:scale-95"
-            style={{ background: C.surfaceAlt, color: C.text, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
-            Gasto <span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: C.bgSoft, border: `1px solid ${C.border}` }}><Plus size={15} /></span>
+          <button onClick={() => { setOpen(false); onAddIncome(); }} className="flex items-center justify-between gap-3 pl-4 pr-1.5 py-1.5 rounded-full text-sm font-medium transition-all active:scale-95"
+            style={{ width: 148, background: C.surfaceAlt, color: C.text, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
+            Receita <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: C.bgSoft, border: `1px solid ${C.border}` }}><Plus size={16} /></span>
           </button>
         </>
       )}
@@ -3440,9 +3443,8 @@ function usePersistentTab(key, defaultValue) {
 
 /* ---------------------------------- DASHBOARDS ---------------------------------- */
 
-function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, data, refresh, showSearch, setShowSearch, hasPin, onSetPin }) {
+function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, data, refresh, showSearch, setShowSearch, onAddExpense, onAddIncome }) {
   const [uploading, setUploading] = useState(false);
-  const [showPinSettings, setShowPinSettings] = useState(false);
   const handleAvatarUpload = async (file) => {
     setUploading(true);
     try {
@@ -3459,10 +3461,18 @@ function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, d
           <Wallet size={16} />
         </div>
         <span className="font-bold text-sm truncate flex-1" style={{ fontFamily: "'Manrope', sans-serif", color: C.text }}>Controle Financeiro</span>
-        <button onClick={() => setShowPinSettings(true)} className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all" style={{ border: `1px solid ${C.border}` }} title={hasPin ? "Trocar PIN" : "Criar PIN de acesso"}>
-          <Lock size={12} color={hasPin ? C.gold : C.muted} />
-        </button>
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+      </div>
+
+      <div className="flex gap-2 mb-3">
+        <button onClick={onAddExpense} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
+          style={{ background: C.gold, color: "var(--gold-contrast)" }}>
+          <Plus size={15} /> Gasto
+        </button>
+        <button onClick={onAddIncome} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
+          style={{ background: C.bgSoft, color: C.text, border: `1px solid ${C.border}` }}>
+          <Plus size={15} /> Receita
+        </button>
       </div>
 
       <button onClick={() => setShowSearch(true)} className="flex items-center justify-between gap-2.5 px-3 py-2.5 mb-3 rounded-xl text-sm" style={{ background: C.bgSoft, border: `1px solid ${C.border}`, color: C.muted }}>
@@ -3470,7 +3480,6 @@ function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, d
         <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ border: `1px solid ${C.border}` }}>/</span>
       </button>
       {showSearch && <GlobalSearchModal profile={profile} data={data} onClose={() => setShowSearch(false)} />}
-      {showPinSettings && <PinSettingsModal hasPin={hasPin} onSetPin={onSetPin} onClose={() => setShowPinSettings(false)} />}
 
       <nav className="flex flex-col gap-1 flex-1">
         {tabs.map((t) => {
@@ -3521,7 +3530,7 @@ function useKeyboardShortcuts({ onNewExpense, onNewIncome, onSearch }) {
   }, [onNewExpense, onNewIncome, onSearch]);
 }
 
-function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme, hasPin, onSetPin }) {
+function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = usePersistentTab("tab-member", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
@@ -3549,9 +3558,9 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme, has
   const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
   return (
     <div className="lg:flex lg:items-start">
-      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} hasPin={hasPin} onSetPin={onSetPin} />
+      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
       <div className="lg:flex-1 lg:min-w-0">
-        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} hasPin={hasPin} onSetPin={onSetPin} /></div>
+        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} /></div>
         {tab === "overview" && <MemberOverview profile={profile} data={data} refresh={refresh} />}
         {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
         {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
@@ -3566,7 +3575,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme, has
   );
 }
 
-function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme, hasPin, onSetPin }) {
+function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [tab, setTab] = usePersistentTab("tab-admin", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
@@ -3593,9 +3602,9 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme, hasP
   const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
   return (
     <div className="lg:flex lg:items-start">
-      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} hasPin={hasPin} onSetPin={onSetPin} />
+      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
       <div className="lg:flex-1 lg:min-w-0">
-        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} hasPin={hasPin} onSetPin={onSetPin} /></div>
+        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} /></div>
         {tab === "overview" && <AdminOverview profile={profile} data={data} refresh={refresh} />}
         {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
         {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
@@ -3612,121 +3621,11 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme, hasP
 
 /* ---------------------------------- ROOT ---------------------------------- */
 
-function simpleHash(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
-  return hash.toString(36);
-}
-
-function usePinLock() {
-  const [pinHash, setPinHash] = useState(() => { try { return localStorage.getItem("app-pin") || ""; } catch { return ""; } });
-  const [unlocked, setUnlocked] = useState(() => { try { return sessionStorage.getItem("pin-unlocked") === "1"; } catch { return false; } });
-  const locked = !!pinHash && !unlocked;
-  const unlock = (pin) => {
-    if (simpleHash(pin) === pinHash) {
-      setUnlocked(true);
-      try { sessionStorage.setItem("pin-unlocked", "1"); } catch {}
-      return true;
-    }
-    return false;
-  };
-  const setPin = (pin) => {
-    const h = pin ? simpleHash(pin) : "";
-    setPinHash(h);
-    try { if (h) localStorage.setItem("app-pin", h); else localStorage.removeItem("app-pin"); } catch {}
-  };
-  return { locked, unlock, setPin, hasPin: !!pinHash };
-}
-
-function PinLockScreen({ onUnlock }) {
-  const [pin, setPin] = useState("");
-  const [shake, setShake] = useState(false);
-  const submit = (value) => {
-    if (!onUnlock(value)) {
-      setShake(true);
-      setTimeout(() => setShake(false), 400);
-      setPin("");
-    }
-  };
-  const press = (d) => {
-    const next = (pin + d).slice(0, 4);
-    setPin(next);
-    if (next.length === 4) submit(next);
-  };
-  return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-6" style={{ background: C.bg }}>
-      <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldSoft})`, color: "var(--gold-contrast)" }}>
-        <Lock size={22} />
-      </div>
-      <p className="text-sm" style={{ color: C.muted }}>Digite seu PIN</p>
-      <div className={`flex gap-3 ${shake ? "animate-pulse" : ""}`}>
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="w-3.5 h-3.5 rounded-full" style={{ background: i < pin.length ? C.gold : "transparent", border: `1.5px solid ${shake ? C.rose : C.border}` }} />
-        ))}
-      </div>
-      <div className="grid grid-cols-3 gap-4">
-        {["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"].map((d, i) => (
-          d === "" ? <div key={i} /> : (
-            <button key={i} onClick={() => (d === "⌫" ? setPin((p) => p.slice(0, -1)) : press(d))}
-              className="w-16 h-16 rounded-full text-lg font-medium flex items-center justify-center transition-all active:scale-95"
-              style={{ background: C.surface, color: C.text, border: `1px solid ${C.border}` }}>
-              {d}
-            </button>
-          )
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PinSettingsModal({ hasPin, onSetPin, onClose }) {
-  const [step, setStep] = useState("enter");
-  const [first, setFirst] = useState("");
-  const [pin, setPin] = useState("");
-  const [err, setErr] = useState("");
-  const press = (d) => {
-    const next = (pin + d).slice(0, 4);
-    setPin(next);
-    if (next.length === 4) {
-      if (step === "enter") { setFirst(next); setPin(""); setStep("confirm"); }
-      else if (next === first) { onSetPin(first); onClose(); }
-      else { setErr("Os PINs não coincidem, tenta de novo."); setPin(""); setFirst(""); setStep("enter"); }
-    }
-  };
-  return (
-    <Modal title={hasPin ? "Trocar PIN" : "Criar PIN de acesso rápido"} onClose={onClose}>
-      <p className="text-xs mb-4" style={{ color: C.muted }}>
-        {step === "enter" ? "Digite um PIN de 4 dígitos." : "Digite de novo pra confirmar."}
-      </p>
-      {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
-      <div className="flex gap-3 justify-center mb-5">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="w-3.5 h-3.5 rounded-full" style={{ background: i < pin.length ? C.gold : "transparent", border: `1.5px solid ${C.border}` }} />
-        ))}
-      </div>
-      <div className="grid grid-cols-3 gap-3 justify-items-center mb-4">
-        {["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"].map((d, i) => (
-          d === "" ? <div key={i} /> : (
-            <button key={i} onClick={() => (d === "⌫" ? setPin((p) => p.slice(0, -1)) : press(d))}
-              className="w-14 h-14 rounded-full text-base font-medium flex items-center justify-center transition-all active:scale-95"
-              style={{ background: C.bgSoft, color: C.text, border: `1px solid ${C.border}` }}>
-              {d}
-            </button>
-          )
-        ))}
-      </div>
-      {hasPin && (
-        <button onClick={() => { onSetPin(""); onClose(); }} className="w-full text-xs text-center" style={{ color: C.rose }}>Remover PIN</button>
-      )}
-    </Modal>
-  );
-}
 
 export default function App() {
   useFonts();
   useThemeStyles();
   const [theme, toggleTheme] = useTheme();
-  const { locked, unlock, setPin, hasPin } = usePinLock();
   const [authUser, setAuthUser] = useState(undefined);
   const [profile, setProfile] = useState(null);
   const [data, setData] = useState(null);
@@ -3773,7 +3672,6 @@ export default function App() {
   if (authUser === undefined) return <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg, color: C.muted }}>Carregando…</div>;
   if (!authUser) return <Login onLogin={(u) => { try { localStorage.setItem("tab-member", "overview"); localStorage.setItem("tab-admin", "overview"); } catch {} setAuthUser(u); }} theme={theme} onToggleTheme={toggleTheme} />;
   if (!profile || !data) return <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg, color: C.muted }}>{error || "Carregando…"}</div>;
-  if (locked) return <PinLockScreen onUnlock={unlock} />;
 
   const handleLogout = async () => { await supabase.auth.signOut(); };
 
@@ -3781,9 +3679,9 @@ export default function App() {
     <div className="min-h-screen" style={{ background: C.bg }}>
       {error && <div className="text-center text-xs py-1.5" style={{ background: "rgba(221,124,134,0.15)", color: C.rose }}>{error}</div>}
       {profile.role === "admin" ? (
-        <AdminApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} hasPin={hasPin} onSetPin={setPin} />
+        <AdminApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />
       ) : (
-        <MemberApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} hasPin={hasPin} onSetPin={setPin} />
+        <MemberApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />
       )}
     </div>
   );
