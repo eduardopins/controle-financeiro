@@ -63,6 +63,9 @@ const WEEKDAYS_PT = ["D", "S", "T", "Q", "Q", "S", "S"];
 
 const brl = (n) => (n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const firstName = (n) => (n || "").split(" ")[0];
+function sortByName(list) {
+  return [...list].sort((a, b) => firstName(a.name).localeCompare(firstName(b.name), "pt-BR"));
+}
 const monthKeyFromDate = (dateStr) => dateStr.slice(0, 7);
 const currentMonthKey = () => {
   const d = new Date();
@@ -1193,7 +1196,7 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
         {people.length > 1 && (
           <Field label="Pessoa">
             <Select value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}>
-              {people.map((p) => <option key={p.id} value={p.id}>{firstName(p.name)}</option>)}
+              {sortByName(people).map((p) => <option key={p.id} value={p.id}>{firstName(p.name)}</option>)}
             </Select>
           </Field>
         )}
@@ -1268,7 +1271,7 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
             <div className="rounded-xl p-3.5" style={{ background: C.bgSoft, border: `1px solid ${C.border}` }}>
               <Field label="Dividir com">
                 <Select value={splitWith} onChange={(e) => setSplitWith(e.target.value)}>
-                  {splitCandidates.map((p) => <option key={p.id} value={p.id}>{firstName(p.name)}</option>)}
+                  {sortByName(splitCandidates).map((p) => <option key={p.id} value={p.id}>{firstName(p.name)}</option>)}
                 </Select>
               </Field>
 
@@ -1361,7 +1364,7 @@ function CardForm({ allProfiles, onSave, onClose, initial }) {
       </div>
       <Field label="Quem tem acesso a este cartão">
         <div className="flex flex-col gap-2 mt-1">
-          {allProfiles.map((u) => (
+          {sortByName(allProfiles).map((u) => (
             <label key={u.id} className="flex items-center gap-2.5 text-sm" style={{ color: C.text }}>
               <Switch checked={memberIds.includes(u.id)} onChange={() => toggle(u.id)} />
               {firstName(u.name)}
@@ -1777,7 +1780,7 @@ function InvestmentForm({ allProfiles, viewerProfileId, onSave, onClose, initial
       {shareCandidates.length > 0 && (
         <Field label="Compartilhar com outra pessoa (opcional)">
           <div className="flex flex-col gap-2 mt-1">
-            {shareCandidates.map((p) => (
+            {sortByName(shareCandidates).map((p) => (
               <label key={p.id} className="flex items-center gap-2.5 text-sm" style={{ color: C.text }}>
                 <Switch checked={memberIds.includes(p.id)} onChange={() => toggle(p.id)} />
                 {firstName(p.name)}
@@ -2527,7 +2530,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
             <Field label="Pessoa">
               <Select value={filterPerson} onChange={(e) => setFilterPerson(e.target.value)}>
                 <option value="all">Todas</option>
-                {data.profiles.map((u) => <option key={u.id} value={u.id}>{firstName(u.name)}</option>)}
+                {sortByName(data.profiles).map((u) => <option key={u.id} value={u.id}>{firstName(u.name)}</option>)}
               </Select>
             </Field>
           </div>
@@ -2916,7 +2919,7 @@ function AdminOverview({ profile, data, refresh }) {
   const scopeActive = scopeIds.length > 0;
   const scopedExpenses = data.expenses.filter((e) => isDueIn(e, now) && (!scopeActive || scopeIds.includes(e.profile_id)));
   const totalMonth = scopedExpenses.reduce((s, e) => s + monthlyValue(e), 0);
-  const byPerson = data.profiles.map((u) => ({
+  const byPerson = sortByName(data.profiles).map((u) => ({
     ...u,
     total: data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0),
     prevTotal: data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, prevMonth)).reduce((s, e) => s + monthlyValue(e), 0),
@@ -3096,7 +3099,7 @@ function PersonFilter({ profiles, selectedIds, onChange }) {
         style={{ background: allSelected ? C.gold : "transparent", color: allSelected ? "var(--gold-contrast)" : C.muted, border: `1px solid ${allSelected ? C.gold : C.border}` }}>
         Todos
       </button>
-      {profiles.map((p) => {
+      {sortByName(profiles).map((p) => {
         const active = selectedIds.includes(p.id);
         return (
           <button key={p.id} onClick={() => toggle(p.id)}
@@ -3174,9 +3177,9 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
   const [summaryYear, setSummaryYear] = useState(parseInt(now.split("-")[0]));
   const [compareMonths, setCompareMonths] = useState([]);
 
-  const scopeProfiles = isAdmin
+  const scopeProfiles = sortByName(isAdmin
     ? (selectedIds.length === 0 ? data.profiles : data.profiles.filter((p) => selectedIds.includes(p.id)))
-    : data.profiles.filter((p) => p.id === profile.id);
+    : data.profiles.filter((p) => p.id === profile.id));
   const scopeIds = scopeProfiles.map((p) => p.id);
 
   const monthKeys = monthKeysForPeriod(period, customRange, relevantCards);
@@ -3292,7 +3295,7 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
 
       {isAdmin && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {data.profiles.map((p) => {
+          {sortByName(data.profiles).map((p) => {
             const active = selectedIds.includes(p.id);
             const personTotal = categoryTotalsForMonths(data.expenses, monthKeys, [p.id]).reduce((s, d) => s + d.value, 0);
             return (
