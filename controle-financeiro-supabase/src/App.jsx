@@ -911,7 +911,9 @@ function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh, showSe
       const url = await uploadAvatar(file, profile.id);
       await saveProfileAvatar(profile.id, url);
       await refresh();
-    } catch {} finally { setUploading(false); }
+    } catch (e) {
+      alert("Não foi possível salvar a foto: " + friendlyError(e));
+    } finally { setUploading(false); }
   };
   return (
     <div className="sticky top-0 z-30" style={{ background: "var(--bg)", borderBottom: `1px solid ${C.border}`, paddingTop: "env(safe-area-inset-top, 0px)" }}>
@@ -3544,7 +3546,9 @@ function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, d
       const url = await uploadAvatar(file, profile.id);
       await saveProfileAvatar(profile.id, url);
       await refresh();
-    } catch {} finally { setUploading(false); }
+    } catch (e) {
+      alert("Não foi possível salvar a foto: " + friendlyError(e));
+    } finally { setUploading(false); }
   };
   return (
     <div className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 lg:sticky lg:top-0 lg:h-screen px-4 py-6"
