@@ -1469,14 +1469,20 @@ function buildDisplayRows(list, allExpenses) {
 
 /* ---------------------------------- EXPENSE ROW ---------------------------------- */
 
-function GroupedExpenseRow({ parts, cardName, personName, viewerProfileId, showPerson, onEdit, onDeleteGroup }) {
+function GroupedExpenseRow({ parts, cardName, personName, viewerProfileId, showPerson, onEdit, onDeleteGroup, onToggleReconciled }) {
   const primary = parts[0];
   const total = parts.reduce((s, p) => s + monthlyValue(p), 0);
   const myPart = parts.find((p) => p.profile_id === viewerProfileId);
   const editTarget = myPart || primary;
+  const allReconciled = parts.every((p) => p.reconciled);
 
   return (
-    <div className="flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}` }}>
+    <div className="flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}`, opacity: allReconciled ? 0.6 : 1 }}>
+      {onToggleReconciled && (
+        <button onClick={() => onToggleReconciled(parts, !allReconciled)} className="shrink-0" title={allReconciled ? "Conferido" : "Marcar como conferido"}>
+          {allReconciled ? <CheckSquare size={16} color={C.green} /> : <Square size={16} color={C.muted} />}
+        </button>
+      )}
       <div className="w-2 h-2 rounded-full shrink-0" style={{ background: getCategoryColor(primary.category) }} />
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium truncate flex items-center gap-1.5" style={{ color: C.text }}>
@@ -1538,7 +1544,7 @@ function ExpenseRow({ exp, cardName, personName, creatorName, reconciledByName, 
           {exp.is_recurring && " · recorrente"}
           {exp.is_refund && " · reembolso"}
           {exp.created_by && exp.created_by !== exp.profile_id && ` · lançado por ${creatorName}`}
-          {exp.reconciled && reconciledByName && ` · conferido por ${reconciledByName}`}
+          {exp.reconciled && ` · conferido${reconciledByName ? ` por ${reconciledByName}` : ""}`}
         </div>
       </div>
       <Amount value={monthlyValue(exp)} size="text-sm" tone={exp.is_refund ? "green" : undefined} />
@@ -2127,6 +2133,7 @@ function GoalsScreen({ profile, data, refresh, embedded }) {
   );
 }
 
+const MIN_INVOICE_MONTH = "2026-07";
 function invoiceMonths(expenses, cardIds, now) {
   const forward = Array.from({ length: 13 }, (_, i) => addMonthsToKey(now, i));
   const pastSet = new Set([addMonthsToKey(now, -1)]);
@@ -2146,7 +2153,7 @@ function invoiceMonths(expenses, cardIds, now) {
       }
     }
   });
-  const past = Array.from(pastSet).sort();
+  const past = Array.from(pastSet).filter((mk) => mk >= MIN_INVOICE_MONTH).sort();
   return [...past, ...forward];
 }
 function invoiceStatusInfo(card, monthKey) {
@@ -2447,6 +2454,10 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
     await logActivity(profile.id, "excluiu", `Excluiu o gasto "${exp.description}"`);
   };
   const handleToggleReconciled = async (exp) => { await toggleExpenseReconciled(exp.id, !exp.reconciled, profile.id); await refresh(); };
+  const handleToggleReconciledGroup = async (parts, value) => {
+    for (const p of parts) await toggleExpenseReconciled(p.id, value, profile.id);
+    await refresh();
+  };
   const handleDeleteGroup = async (parts) => {
     if (!window.confirm("Excluir este gasto dividido? As duas partes serão removidas.")) return;
     for (const p of parts) await deleteExpense(p);
@@ -2606,7 +2617,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
               buildDisplayRows(filtered, data.expenses).map((row) =>
                 row.isGroup ? (
                   <GroupedExpenseRow key={row.groupId} parts={row.parts} cardName={cardName(row.primary.card_id)} personName={personName} viewerProfileId={profile.id} showPerson={isAdmin}
-                    onEdit={(e) => { setEditing(e); setShowForm(true); }} onDeleteGroup={handleDeleteGroup} />
+                    onEdit={(e) => { setEditing(e); setShowForm(true); }} onDeleteGroup={handleDeleteGroup} onToggleReconciled={handleToggleReconciledGroup} />
                 ) : (
                   <ExpenseRow key={row.exp.id} exp={row.exp} cardName={cardName(row.exp.card_id)} personName={personName(row.exp.profile_id)} creatorName={row.exp.created_by ? personName(row.exp.created_by) : ""} reconciledByName={row.exp.reconciled_by ? personName(row.exp.reconciled_by) : ""} showPerson={isAdmin}
                     onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} onToggleReconciled={handleToggleReconciled} />
@@ -2691,7 +2702,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
                 buildDisplayRows(invoiceLineItems, data.expenses).map((row) =>
                   row.isGroup ? (
                     <GroupedExpenseRow key={row.groupId} parts={row.parts} cardName={cardName(row.primary.card_id)} personName={personName} viewerProfileId={profile.id} showPerson={isAdmin}
-                      onEdit={(e) => { setEditing(e); setShowForm(true); }} onDeleteGroup={handleDeleteGroup} />
+                      onEdit={(e) => { setEditing(e); setShowForm(true); }} onDeleteGroup={handleDeleteGroup} onToggleReconciled={handleToggleReconciledGroup} />
                   ) : (
                     <ExpenseRow key={row.exp.id} exp={row.exp} cardName={cardName(row.exp.card_id)} personName={personName(row.exp.profile_id)} creatorName={row.exp.created_by ? personName(row.exp.created_by) : ""} reconciledByName={row.exp.reconciled_by ? personName(row.exp.reconciled_by) : ""} showPerson={isAdmin} contextMonth={selectedMonth}
                       onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} onToggleReconciled={handleToggleReconciled} />
