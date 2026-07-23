@@ -138,7 +138,7 @@ function isRemovedForMonth(exp, monthKey, overrides) {
   return !!(o && o.removed);
 }
 function outstanding(exp, nowKey = currentMonthKey()) {
-  if (exp.is_recurring) return 0;
+  if (exp.is_recurring) return isDueIn(exp, nowKey) ? exp.total_amount : 0;
   if (exp.is_refund) return exp.total_amount; // já é negativo — libera limite de verdade
   const done = Math.min(Math.max(diffMonths(exp.first_month, nowKey), 0), exp.installments);
   const monthly = exp.total_amount / exp.installments;
@@ -410,8 +410,8 @@ function Modal({ title, onClose, children }) {
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "rgba(6,8,20,0.75)" }}>
-      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 max-h-[85vh] overflow-y-auto" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(6,8,20,0.75)" }}>
+      <div className="w-full max-w-md rounded-2xl p-5 max-h-[85vh] overflow-y-auto" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{title}</h3>
           <button onClick={onClose}><X size={18} color={C.muted} /></button>
@@ -539,7 +539,7 @@ function Amount({ value, size = "text-lg", tone }) {
 }
 function ProgressBar({ pct, tone = "gold" }) {
   const color = tone === "rose" ? C.rose : tone === "green" ? C.green : C.gold;
-  return <div className="h-1.5 w-full rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}><div className="h-full rounded-full transition-all" style={{ width: `${Math.min(pct, 100)}%`, background: color }} /></div>;
+  return <div className="h-2 w-full rounded-full overflow-hidden" style={{ background: C.border }}><div className="h-full rounded-full transition-all" style={{ width: `${Math.min(Math.max(pct, pct > 0 ? 3 : 0), 100)}%`, background: color }} /></div>;
 }
 function Chip({ tone = "muted", icon, children }) {
   const colors = { rose: C.rose, amber: C.amber, muted: C.muted, green: C.green, gold: C.gold };
@@ -1414,8 +1414,10 @@ function CardWidget({ card, used, nextAmount }) {
           <Amount value={Math.max(card.card_limit - used, 0)} size="text-base" tone={tone === "rose" ? "rose" : undefined} />
         </div>
         <ProgressBar pct={pct} tone={tone} />
-        <div className="flex items-center justify-between mt-2 text-[11px]" style={{ color: C.muted }}>
-          <span>usado {brl(used)}</span><span>limite {brl(card.card_limit)}</span>
+        <div className="flex items-center justify-between mt-1.5 text-[11px]" style={{ color: C.muted }}>
+          <span>usado {brl(used)}</span>
+          <span style={{ color: tone === "rose" ? C.rose : tone === "gold" ? C.gold : C.muted, fontWeight: 600 }}>{pct.toFixed(0)}%</span>
+          <span>limite {brl(card.card_limit)}</span>
         </div>
         <div className="mt-2 text-[10px]" style={{ color: C.muted }}>
           fatura {status} · fecha dia {card.closing_day}
@@ -1938,7 +1940,7 @@ function InvestmentCard({ inv, balance, transactions, profiles, viewerProfileId,
             const neededPerMonth = (inv.target_amount - balance) / monthsLeft;
             return (
               <p className="text-[11px] mt-1.5" style={{ color: C.gold }}>
-                faltam {brl(inv.target_amount - balance)} em {monthsLeft} {monthsLeft === 1 ? "mês" : "meses"} · aporte uns {brl(neededPerMonth)}/mês pra chegar lá
+                Aporte ~{brl(neededPerMonth)}/mês ({monthsLeft} {monthsLeft === 1 ? "mês" : "meses"} restante{monthsLeft > 1 ? "s" : ""})
               </p>
             );
           })()}
@@ -3384,12 +3386,9 @@ function compactNumber(v) {
   if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k`;
   return `${Math.round(v)}`;
 }
-const PERSON_COLOR_MAP = { eduardo: "#10B981", nilvane: "#EC4899" };
+const PERSON_COLORS = ["#3B82F6", "#10B981", "#EC4899", "#F2994A", "#8C6FA8", "#06B6D4"];
 function personColorFor(name, fallbackIndex) {
-  const key = firstName(name).toLowerCase();
-  if (PERSON_COLOR_MAP[key]) return PERSON_COLOR_MAP[key];
-  const fallback = ["#5C86A8", "#C7A24C", "#8C6FA8", "#4F9B93"];
-  return fallback[fallbackIndex % fallback.length];
+  return PERSON_COLORS[fallbackIndex % PERSON_COLORS.length];
 }
 function monthKeysForPeriod(period, customRange, cards) {
   const now = openInvoiceMonth(cards);
@@ -3772,11 +3771,11 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
 
       <Panel>
         <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Comparar meses específicos</h4>
-        <div className="flex flex-wrap gap-1.5 mb-3">
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
           {last12Months.map((mk) => {
             const active = compareMonths.includes(mk);
             return (
-              <button key={mk} onClick={() => toggleCompareMonth(mk)} className="flex-1 min-w-[68px] px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-all"
+              <button key={mk} onClick={() => toggleCompareMonth(mk)} className="px-2 py-2 rounded-lg text-xs font-medium capitalize transition-all"
                 style={{ background: active ? C.gold : C.bgSoft, color: active ? "var(--gold-contrast)" : C.muted, border: `1px solid ${active ? C.gold : C.border}` }}>
                 {monthLabel(mk)}
               </button>
