@@ -446,37 +446,43 @@ function DateInput({ value, onChange, placeholder }) {
         <Calendar size={15} color={C.muted} />
       </button>
       {open && (
-        <Modal title="Selecionar data" onClose={() => setOpen(false)}>
-          <div className="flex items-center justify-between mb-3">
-            <button type="button" onClick={() => changeMonth(-1)}><ChevronRight size={16} color={C.muted} style={{ transform: "rotate(180deg)" }} /></button>
-            <span className="text-sm font-medium capitalize" style={{ color: C.text }}>{MONTHS_FULL_PT[viewMonth]} de {viewYear}</span>
-            <button type="button" onClick={() => changeMonth(1)}><ChevronRight size={16} color={C.muted} /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(6,8,20,0.75)" }}>
+          <div className="w-full max-w-sm rounded-2xl p-5" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow, maxHeight: "94vh", overflowY: "auto" }}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>Selecionar data</h3>
+              <button type="button" onClick={() => setOpen(false)}><X size={18} color={C.muted} /></button>
+            </div>
+            <div className="flex items-center justify-between mb-3">
+              <button type="button" onClick={() => changeMonth(-1)}><ChevronRight size={16} color={C.muted} style={{ transform: "rotate(180deg)" }} /></button>
+              <span className="text-sm font-medium capitalize" style={{ color: C.text }}>{MONTHS_FULL_PT[viewMonth]} de {viewYear}</span>
+              <button type="button" onClick={() => changeMonth(1)}><ChevronRight size={16} color={C.muted} /></button>
+            </div>
+            <div className="grid grid-cols-7 gap-1 mb-1">
+              {WEEKDAYS_PT.map((w, i) => <div key={i} className="text-center text-[10px]" style={{ color: C.muted }}>{w}</div>)}
+            </div>
+            <div className="grid grid-cols-7 gap-1 mb-4">
+              {cells.map((c, i) => {
+                const selected = !c.muted && value === keyFor(c.day);
+                return (
+                  <button key={i} type="button" disabled={c.muted} onClick={() => selectDay(c.day)}
+                    className="aspect-square rounded-lg text-xs flex items-center justify-center transition-all"
+                    style={{
+                      background: selected ? C.gold : "transparent",
+                      color: c.muted ? C.border : selected ? "var(--gold-contrast)" : (isToday(c.day) ? C.gold : C.text),
+                      border: isToday(c.day) && !selected ? `1px solid ${C.gold}` : "1px solid transparent",
+                      cursor: c.muted ? "default" : "pointer",
+                    }}>
+                    {c.day}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex justify-between text-xs">
+              <button type="button" onClick={() => { onChange(""); setOpen(false); }} style={{ color: C.muted }}>Limpar</button>
+              <button type="button" onClick={() => { const t = new Date(); onChange(`${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`); setOpen(false); }} style={{ color: C.gold }}>Hoje</button>
+            </div>
           </div>
-          <div className="grid grid-cols-7 gap-1 mb-1">
-            {WEEKDAYS_PT.map((w, i) => <div key={i} className="text-center text-[10px]" style={{ color: C.muted }}>{w}</div>)}
-          </div>
-          <div className="grid grid-cols-7 gap-1 mb-4">
-            {cells.map((c, i) => {
-              const selected = !c.muted && value === keyFor(c.day);
-              return (
-                <button key={i} type="button" disabled={c.muted} onClick={() => selectDay(c.day)}
-                  className="aspect-square rounded-lg text-xs flex items-center justify-center transition-all"
-                  style={{
-                    background: selected ? C.gold : "transparent",
-                    color: c.muted ? C.border : selected ? "var(--gold-contrast)" : (isToday(c.day) ? C.gold : C.text),
-                    border: isToday(c.day) && !selected ? `1px solid ${C.gold}` : "1px solid transparent",
-                    cursor: c.muted ? "default" : "pointer",
-                  }}>
-                  {c.day}
-                </button>
-              );
-            })}
-          </div>
-          <div className="flex justify-between text-xs">
-            <button type="button" onClick={() => { onChange(""); setOpen(false); }} style={{ color: C.muted }}>Limpar</button>
-            <button type="button" onClick={() => { const t = new Date(); onChange(`${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`); setOpen(false); }} style={{ color: C.gold }}>Hoje</button>
-          </div>
-        </Modal>
+        </div>
       )}
     </>
   );
@@ -2548,9 +2554,6 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
           </div>
         </div>
       )}
-      {isAdmin && filterCard === "all" && data.cards.length > 1 && (
-        <p className="text-[11px] -mt-2 mb-3" style={{ color: C.muted }}>Escolha um cartão acima pra ver o status da fatura e registrar pagamento.</p>
-      )}
 
       <div className="relative mb-3">
         <Search size={15} color={C.muted} className="absolute left-3 top-1/2 -translate-y-1/2" />
@@ -2636,7 +2639,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
             <div className="rounded-3xl p-5 mb-4 relative overflow-hidden" style={{ background: HERO_GRADIENT, boxShadow: "0 14px 34px rgba(0,0,0,0.35)" }}>
               <div style={{ position: "absolute", right: -40, top: -40, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
-              <div className="relative flex items-start justify-between gap-3">
+              <div className="relative flex items-start justify-between gap-3 flex-wrap">
                 <div>
                   <div className="text-[11px] opacity-80" style={{ color: "var(--gold-contrast)" }}>Fatura de {monthLabel(selectedMonth)}</div>
                   <div className="text-2xl sm:text-3xl font-bold mt-1" style={{ color: "var(--gold-contrast)", fontFamily: "'IBM Plex Mono', monospace" }}>{brl(invoiceTotal)}</div>
