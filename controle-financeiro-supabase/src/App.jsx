@@ -2351,7 +2351,10 @@ function PayInvoiceModal({ card, monthKey, invoiceTotal, alreadyPaid, onConfirm,
 
 function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [filterPerson, setFilterPerson] = useState("all");
-  const [filterCard, setFilterCard] = useState("all");
+  const [filterCard, setFilterCard] = useState(() => {
+    const cards = isAdmin ? data.cards : accessibleCards(data, profile.id);
+    return cards.length === 1 ? cards[0].id : "all";
+  });
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [query, setQuery] = useState("");
@@ -2513,6 +2516,9 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
           </div>
         </div>
       )}
+      {isAdmin && filterCard === "all" && data.cards.length > 1 && (
+        <p className="text-[11px] -mt-2 mb-3" style={{ color: C.muted }}>Escolha um cartão acima pra ver o status da fatura e registrar pagamento.</p>
+      )}
 
       <div className="relative mb-3">
         <Search size={15} color={C.muted} className="absolute left-3 top-1/2 -translate-y-1/2" />
@@ -2611,7 +2617,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
                     </span>
                   )}
                 </div>
-                {isAdmin && paymentStatus.label !== "futura" && paymentStatus.label !== "fatura atual" && (
+                {isAdmin && paymentStatus.label !== "futura" && (
                   <button onClick={() => setShowPayModal(true)} className="text-xs font-medium shrink-0" style={{ color: C.gold }}>
                     Registrar pagamento
                   </button>
@@ -3389,11 +3395,11 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
 
       <Panel>
         <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Comparar meses específicos</h4>
-        <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+        <div className="flex flex-wrap gap-1.5 mb-3">
           {last12Months.map((mk) => {
             const active = compareMonths.includes(mk);
             return (
-              <button key={mk} onClick={() => toggleCompareMonth(mk)} className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-all"
+              <button key={mk} onClick={() => toggleCompareMonth(mk)} className="flex-1 min-w-[68px] px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-all"
                 style={{ background: active ? C.gold : C.bgSoft, color: active ? "var(--gold-contrast)" : C.muted, border: `1px solid ${active ? C.gold : C.border}` }}>
                 {monthLabel(mk)}
               </button>
