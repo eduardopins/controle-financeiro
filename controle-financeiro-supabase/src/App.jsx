@@ -2483,9 +2483,13 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const paymentStatus = displayCard ? invoicePaymentStatus(displayCard, selectedMonth, invoiceTotal, invoicePaidTotal) : null;
   const [showPayModal, setShowPayModal] = useState(false);
   const [showPayPicker, setShowPayPicker] = useState(false);
+  const [payTargetCard, setPayTargetCard] = useState(null);
+  const payCard = invoiceSingleCard || payTargetCard;
+  const payCardTotal = payCard ? invoiceScopedExpenses.filter((e) => e.card_id === payCard.id && isDueIn(e, selectedMonth)).reduce((s, e) => s + monthlyValue(e), 0) : 0;
+  const payCardPaidTotal = payCard ? paidForInvoice(data.invoicePayments, payCard.id, selectedMonth) : 0;
   const handlePayInvoice = async (amount) => {
-    await saveInvoicePayment({ cardId: invoiceSingleCard.id, monthKey: selectedMonth, amount, paidAt: new Date().toISOString().slice(0, 10), profileId: profile.id });
-    await logActivity(profile.id, "pagou", `Registrou pagamento de ${brl(amount)} na fatura de ${monthLabel(selectedMonth)} (${invoiceSingleCard.name})`);
+    await saveInvoicePayment({ cardId: payCard.id, monthKey: selectedMonth, amount, paidAt: new Date().toISOString().slice(0, 10), profileId: profile.id });
+    await logActivity(profile.id, "pagou", `Registrou pagamento de ${brl(amount)} na fatura de ${monthLabel(selectedMonth)} (${payCard.name})`);
     await refresh();
   };
 
@@ -2665,11 +2669,11 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
             {showPayPicker && (
               <ChoosePayCardModal cards={invoiceCards.length ? invoiceCards : myCards} monthKey={selectedMonth} expenses={invoiceScopedExpenses} payments={data.invoicePayments}
-                onChoose={(c) => { setFilterCard(c.id); setShowPayPicker(false); setShowPayModal(true); }} onClose={() => setShowPayPicker(false)} />
+                onChoose={(c) => { setPayTargetCard(c); setShowPayPicker(false); setShowPayModal(true); }} onClose={() => setShowPayPicker(false)} />
             )}
-            {showPayModal && invoiceSingleCard && (
-              <PayInvoiceModal card={invoiceSingleCard} monthKey={selectedMonth} invoiceTotal={invoiceTotal} alreadyPaid={invoicePaidTotal}
-                onConfirm={handlePayInvoice} onClose={() => setShowPayModal(false)} />
+            {showPayModal && payCard && (
+              <PayInvoiceModal card={payCard} monthKey={selectedMonth} invoiceTotal={payCardTotal} alreadyPaid={payCardPaidTotal}
+                onConfirm={handlePayInvoice} onClose={() => { setShowPayModal(false); setPayTargetCard(null); }} />
             )}
             {invoiceLineItems.length > 0 && invoiceSingleCard && (
               <p className="text-[11px] mb-2 -mt-2" style={{ color: C.muted }}>
