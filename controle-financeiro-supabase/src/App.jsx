@@ -396,6 +396,11 @@ const inputClass = "w-full rounded-lg px-3 py-2.5 text-base outline-none app-inp
 function TextInput(props) { return <input {...props} className={inputClass} style={{ ...inputStyle, ...(props.style || {}) }} />; }
 function Select(props) { return <select {...props} className={inputClass} style={inputStyle} />; }
 function Modal({ title, onClose, children }) {
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: "rgba(6,8,20,0.75)" }}>
       <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 max-h-[85vh] overflow-y-auto" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
@@ -421,6 +426,13 @@ function DateInput({ value, onChange, placeholder }) {
   const base = value ? new Date(value + "T00:00:00") : new Date();
   const [viewYear, setViewYear] = useState(base.getFullYear());
   const [viewMonth, setViewMonth] = useState(base.getMonth());
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open]);
 
   const openPicker = () => {
     const d = value ? new Date(value + "T00:00:00") : new Date();
@@ -820,6 +832,12 @@ function AvatarCropModal({ file, onCancel, onCropped }) {
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const dragRef = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onCancel]);
 
   useEffect(() => {
     const url = URL.createObjectURL(file);
@@ -1666,6 +1684,31 @@ function investmentBalance(investmentId, transactions) {
     return s + sign * t.amount;
   }, 0);
 }
+// Estima o rendimento acumulado desde cada aporte, aplicando a taxa mensal
+// configurada. É uma estimativa (o app não recebe extrato real do banco).
+function estimatedYieldToDate(investmentId, transactions, monthlyRatePercent, nowKey = currentMonthKey()) {
+  if (!monthlyRatePercent) return 0;
+  const i = monthlyRatePercent / 100;
+  let grown = 0, principal = 0;
+  transactions.filter((t) => t.investment_id === investmentId).forEach((t) => {
+    const sign = t.type === "deposit" ? 1 : -1;
+    const startKey = monthKeyFromDate(t.transaction_date);
+    if (t.is_recurring) {
+      const occurrences = Math.max(diffMonths(startKey, nowKey) + 1, 0);
+      for (let k = 0; k < occurrences; k++) {
+        const occMonth = addMonthsToKey(startKey, k);
+        const monthsGrown = diffMonths(occMonth, nowKey);
+        grown += sign * t.amount * Math.pow(1 + i, monthsGrown);
+        principal += sign * t.amount;
+      }
+    } else if (startKey <= nowKey) {
+      const monthsGrown = diffMonths(startKey, nowKey);
+      grown += sign * t.amount * Math.pow(1 + i, monthsGrown);
+      principal += sign * t.amount;
+    }
+  });
+  return grown - principal;
+}
 function investmentBalanceUpTo(investmentId, transactions, monthKey) {
   return transactions.filter((t) => t.investment_id === investmentId).reduce((s, t) => {
     const sign = t.type === "deposit" ? 1 : -1;
@@ -1861,6 +1904,15 @@ function InvestmentCard({ inv, balance, transactions, profiles, viewerProfileId,
       )}
       <span className="text-[11px] block mt-2" style={{ color: C.muted }}>saldo</span>
       <div className="mb-3"><Amount value={balance} size="text-2xl" tone="green" /></div>
+      {(() => {
+        const rate = investmentMonthlyRate(inv, cdiAnnual);
+        const estYield = rate != null ? estimatedYieldToDate(inv.id, transactions, rate) : 0;
+        return estYield > 0.01 && (
+          <p className="text-[11px] mb-3 flex items-center gap-1.5" style={{ color: C.green }}>
+            <TrendingUp size={11} /> ~{brl(estYield)} de rendimento estimado até agora
+          </p>
+        );
+      })()}
       {inv.target_amount != null && (
         <div className="mb-3">
           <div className="flex items-baseline justify-between mb-1.5 text-xs" style={{ color: C.muted }}>
@@ -1868,8 +1920,25 @@ function InvestmentCard({ inv, balance, transactions, profiles, viewerProfileId,
             <span style={{ color: C.text }}>{brl(balance)} <span style={{ color: C.muted }}>de {brl(inv.target_amount)}</span></span>
           </div>
           <ProgressBar pct={(balance / inv.target_amount) * 100} tone={balance >= inv.target_amount ? "green" : "gold"} />
+          {inv.target_date && balance < inv.target_amount && (() => {
+            const monthsLeft = Math.max(diffMonths(currentMonthKey(), monthKeyFromDate(inv.target_date)), 1);
+            const neededPerMonth = (inv.target_amount - balance) / monthsLeft;
+            return (
+              <p className="text-[11px] mt-1.5" style={{ color: C.gold }}>
+                faltam {brl(inv.target_amount - balance)} em {monthsLeft} {monthsLeft === 1 ? "mês" : "meses"} · aporte uns {brl(neededPerMonth)}/mês pra chegar lá
+              </p>
+            );
+          })()}
         </div>
       )}
+      {(() => {
+        const recurringDeposit = transactions.find((t) => t.investment_id === inv.id && t.is_recurring && t.type === "deposit");
+        return recurringDeposit && (
+          <div className="flex items-center gap-1.5 mb-3 text-[11px]" style={{ color: C.muted }}>
+            <Repeat size={11} color={C.gold} /> aporte automático de {brl(recurringDeposit.amount)}/mês configurado — confere se o depósito de verdade já foi feito
+          </div>
+        );
+      })()}
       {(() => {
         const rate = investmentMonthlyRate(inv, cdiAnnual);
         return rate != null && (
@@ -1921,7 +1990,7 @@ function InvestmentCard({ inv, balance, transactions, profiles, viewerProfileId,
 
 function InvestmentSimulator({ cdiAnnual, onClose, embedded }) {
   const [initial, setInitial] = useState(1000);
-  const [monthly, setMonthly] = useState(200);
+  const [scenarios, setScenarios] = useState([200, 400]);
   const [cdiPercent, setCdiPercent] = useState(100);
   const [months, setMonths] = useState(12);
 
@@ -1929,36 +1998,51 @@ function InvestmentSimulator({ cdiAnnual, onClose, embedded }) {
   const i = (monthlyRate || 0) / 100;
   const n = Math.max(parseInt(months) || 0, 0);
   const p = parseFloat(initial) || 0;
-  const a = parseFloat(monthly) || 0;
-  const futureValue = i > 0
-    ? p * Math.pow(1 + i, n) + a * ((Math.pow(1 + i, n) - 1) / i)
-    : p + a * n;
-  const totalContributed = p + a * n;
-  const earned = futureValue - totalContributed;
+
+  const compute = (monthly) => {
+    const a = parseFloat(monthly) || 0;
+    const futureValue = i > 0
+      ? p * Math.pow(1 + i, n) + a * ((Math.pow(1 + i, n) - 1) / i)
+      : p + a * n;
+    const totalContributed = p + a * n;
+    return { futureValue, totalContributed, earned: futureValue - totalContributed };
+  };
+
+  const updateScenario = (idx, value) => setScenarios((prev) => prev.map((s, i2) => i2 === idx ? value : s));
+  const addScenario = () => setScenarios((prev) => prev.length < 3 ? [...prev, (parseFloat(prev[prev.length - 1]) || 0) + 100] : prev);
+  const removeScenario = (idx) => setScenarios((prev) => prev.length > 1 ? prev.filter((_, i2) => i2 !== idx) : prev);
 
   const content = (
     <>
       <Field label="Valor inicial (R$)"><CurrencyInput value={initial} onChange={setInitial} /></Field>
-      <Field label="Aporte mensal (R$)"><CurrencyInput value={monthly} onChange={setMonthly} /></Field>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2 mb-1">
         <Field label="% do CDI"><TextInput type="number" value={cdiPercent} onChange={(e) => setCdiPercent(e.target.value)} /></Field>
         <Field label="Meses"><TextInput type="number" value={months} onChange={(e) => setMonths(e.target.value)} /></Field>
       </div>
       {cdiAnnual == null && <p className="text-[11px] mb-3" style={{ color: C.muted }}>CDI atual indisponível agora — a simulação usa a última taxa conhecida, se houver.</p>}
-      <div className="rounded-xl p-4 mt-1" style={{ background: C.bgSoft, border: `1px solid ${C.border}` }}>
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs" style={{ color: C.muted }}>valor final estimado</span>
-          <Amount value={futureValue} size="text-lg" tone="green" />
-        </div>
-        <div className="flex items-center justify-between text-xs mb-1">
-          <span style={{ color: C.muted }}>total aportado</span>
-          <span style={{ color: C.text }}>{brl(totalContributed)}</span>
-        </div>
-        <div className="flex items-center justify-between text-xs">
-          <span style={{ color: C.muted }}>rendimento gerado</span>
-          <span style={{ color: C.green }}>{brl(earned)}</span>
-        </div>
+
+      <p className="text-[10px] font-semibold tracking-wide uppercase mb-2 mt-3" style={{ color: C.gold }}>Comparar cenários de aporte mensal</p>
+      <div className={`grid gap-2 mb-3 ${scenarios.length > 1 ? "grid-cols-2" : ""} ${scenarios.length > 2 ? "sm:grid-cols-3" : ""}`}>
+        {scenarios.map((s, idx) => {
+          const result = compute(s);
+          return (
+            <div key={idx} className="rounded-xl p-3" style={{ background: C.bgSoft, border: `1px solid ${C.border}` }}>
+              <div className="flex items-center gap-1.5 mb-2">
+                <CurrencyInput value={s} onChange={(v) => updateScenario(idx, v)} />
+                {scenarios.length > 1 && <button onClick={() => removeScenario(idx)}><X size={14} color={C.muted} /></button>}
+              </div>
+              <div className="text-[10px] mb-1" style={{ color: C.muted }}>valor final</div>
+              <Amount value={result.futureValue} size="text-sm" tone="green" />
+              <div className="text-[10px] mt-2" style={{ color: C.muted }}>rendimento: <span style={{ color: C.green }}>{brl(result.earned)}</span></div>
+            </div>
+          );
+        })}
       </div>
+      {scenarios.length < 3 && (
+        <button onClick={addScenario} className="flex items-center gap-1.5 text-xs mb-4" style={{ color: C.gold }}>
+          <Plus size={13} /> Comparar mais um cenário
+        </button>
+      )}
     </>
   );
 
@@ -2007,6 +2091,65 @@ function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
             <TrendingUp size={12} color={C.green} />
             {cdiLoading ? "Buscando CDI atual..." : cdi != null ? `CDI atual: ${cdi.toFixed(2)}% ao ano` : "Não foi possível buscar o CDI agora"}
           </div>
+
+          {myInvestments.length > 1 && totalBalance > 0 && (
+            <Panel className="mb-4">
+              <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Composição da carteira</h4>
+              <div className="flex items-center gap-4">
+                <ResponsiveContainer width={110} height={110}>
+                  <PieChart>
+                    <Pie data={myInvestments.map((inv, i) => ({ name: inv.name, value: Math.max(investmentBalance(inv.id, data.investmentTransactions), 0) })).filter((d) => d.value > 0)}
+                      dataKey="value" nameKey="name" innerRadius={32} outerRadius={52} paddingAngle={2}>
+                      {myInvestments.map((inv, i) => <Cell key={inv.id} fill={FALLBACK_CAT_COLORS[i % FALLBACK_CAT_COLORS.length]} />)}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex-1 space-y-1.5">
+                  {myInvestments.map((inv, i) => {
+                    const bal = Math.max(investmentBalance(inv.id, data.investmentTransactions), 0);
+                    const pct = totalBalance > 0 ? (bal / totalBalance) * 100 : 0;
+                    return bal > 0 && (
+                      <div key={inv.id} className="flex items-center gap-2 text-xs">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: FALLBACK_CAT_COLORS[i % FALLBACK_CAT_COLORS.length] }} />
+                        <span className="truncate flex-1" style={{ color: C.text }}>{inv.name}</span>
+                        <span style={{ color: C.muted }}>{pct.toFixed(0)}%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </Panel>
+          )}
+
+          {myInvestments.length > 0 && (
+            <Panel className="mb-4">
+              <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Aporte vs. rendimento (últimos 6 meses)</h4>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={last6Months().map((mk) => {
+                  const prevMk = addMonthsToKey(mk, -1);
+                  let contrib = 0, yieldDelta = 0;
+                  myInvestments.forEach((inv) => {
+                    const balThis = investmentBalanceUpTo(inv.id, data.investmentTransactions, mk);
+                    const balPrev = investmentBalanceUpTo(inv.id, data.investmentTransactions, prevMk);
+                    const rate = investmentMonthlyRate(inv, cdi);
+                    const yThis = rate != null ? estimatedYieldToDate(inv.id, data.investmentTransactions, rate, mk) : 0;
+                    const yPrev = rate != null ? estimatedYieldToDate(inv.id, data.investmentTransactions, rate, prevMk) : 0;
+                    yieldDelta += yThis - yPrev;
+                    contrib += (balThis - balPrev) - (yThis - yPrev);
+                  });
+                  return { month: monthLabel(mk), aporte: Math.max(contrib, 0), rendimento: Math.max(yieldDelta, 0) };
+                })} barGap={4}>
+                  <XAxis dataKey="month" stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} />
+                  <YAxis stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} tickFormatter={compactNumber} width={38} />
+                  <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="aporte" name="Aporte" fill={C.gold} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="rendimento" name="Rendimento" fill={C.green} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Panel>
+          )}
+
           <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Nova caixinha</Btn>
           <div className="mt-4 space-y-3">
             {myInvestments.length === 0 && <Panel><EmptyState icon={<PiggyBank size={28} />} text="Nenhuma caixinha ainda. Crie a primeira." /></Panel>}
