@@ -231,10 +231,10 @@ function detectBank(name) {
   return null;
 }
 
-function anyCardAlert(cards, expenses) {
+function anyCardAlert(cards, expenses, payments) {
   const now = currentMonthKey();
   return cards.some((c) => {
-    const used = expenses.filter((e) => e.card_id === c.id).reduce((s, e) => s + outstanding(e, now), 0);
+    const used = netUsedForCard(expenses, payments, c.id, now);
     const pct = c.card_limit ? (used / c.card_limit) * 100 : 0;
     const { daysUntilDue } = billingInfo(c);
     return pct >= 80 || daysUntilDue <= 5;
@@ -504,7 +504,7 @@ function ProgressBar({ pct, tone = "gold" }) {
   return <div className="h-1.5 w-full rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}><div className="h-full rounded-full transition-all" style={{ width: `${Math.min(pct, 100)}%`, background: color }} /></div>;
 }
 function Chip({ tone = "muted", icon, children }) {
-  const colors = { rose: C.rose, amber: C.amber, muted: C.muted, green: C.green };
+  const colors = { rose: C.rose, amber: C.amber, muted: C.muted, green: C.green, gold: C.gold };
   const color = colors[tone];
   return (
     <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: `${color}1F`, color }}>
@@ -559,7 +559,7 @@ function BottomNav({ tabs, tab, setTab }) {
 /* ---------------------------------- data layer (Supabase) ---------------------------------- */
 
 async function loadAll() {
-  const [profiles, cards, cardAccess, expenses, budgets, incomes, customCategories, investments, investmentAccess, investmentTx, activityLog] = await Promise.all([
+  const [profiles, cards, cardAccess, expenses, budgets, incomes, customCategories, investments, investmentAccess, investmentTx, activityLog, invoicePayments] = await Promise.all([
     supabase.from("profiles").select("*"),
     supabase.from("cards").select("*"),
     supabase.from("card_access").select("*"),
@@ -571,6 +571,7 @@ async function loadAll() {
     supabase.from("investment_access").select("*"),
     supabase.from("investment_transactions").select("*"),
     supabase.from("activity_log").select("*").order("created_at", { ascending: false }).limit(100),
+    supabase.from("invoice_payments").select("*"),
   ]);
   const cardsWithMembers = (cards.data || []).map((c) => ({
     ...c,
@@ -590,7 +591,44 @@ async function loadAll() {
     investments: investmentsWithAccess,
     investmentTransactions: investmentTx.data || [],
     activityLog: activityLog.data || [],
+    invoicePayments: invoicePayments.data || [],
   };
+}
+
+async function saveInvoicePayment(payment) {
+  const { error } = await supabase.from("invoice_payments").insert({
+    card_id: payment.cardId, month_key: payment.monthKey, amount: payment.amount,
+    paid_at: payment.paidAt, profile_id: payment.profileId,
+  });
+  if (error) throw error;
+}
+async function deleteInvoicePayment(payment) {
+  const { error } = await supabase.from("invoice_payments").delete().eq("id", payment.id);
+  if (error) throw error;
+}
+function paidForInvoice(payments, cardId, monthKey) {
+  return (payments || []).filter((p) => p.card_id === cardId && p.month_key === monthKey).reduce((s, p) => s + p.amount, 0);
+}
+function totalPaidForCard(payments, cardId) {
+  return (payments || []).filter((p) => p.card_id === cardId).reduce((s, p) => s + p.amount, 0);
+}
+function netUsedForCard(expenses, payments, cardId, now) {
+  const used = expenses.filter((e) => e.card_id === cardId).reduce((s, e) => s + outstanding(e, now), 0);
+  return Math.max(used - totalPaidForCard(payments, cardId), 0);
+}
+function invoiceDueDate(monthKey, dueDay) {
+  const [y, m] = monthKey.split("-").map(Number);
+  return new Date(y, m - 1, dueDay);
+}
+function invoicePaymentStatus(card, monthKey, invoiceTotal, paidTotal) {
+  const info = invoiceStatusInfo(card, monthKey);
+  if (info.label === "futura") return { label: "futura", tone: "muted" };
+  if (info.label === "aberta") return { label: "fatura atual", tone: "gold" };
+  if (invoiceTotal > 0 && paidTotal >= invoiceTotal - 0.005) return { label: "paga", tone: "green" };
+  const dueDate = invoiceDueDate(monthKey, card.due_day);
+  const overdue = new Date() > dueDate;
+  if (overdue) return { label: "atrasada", tone: "rose" };
+  return { label: "em aberto", tone: "amber" };
 }
 
 async function saveCard(card) {
@@ -2107,7 +2145,7 @@ function invoiceStatusInfo(card, monthKey) {
   const diff = diffMonths(monthKey, currentInvoiceMonth);
   if (diff > 0) return { label: "futura", tone: "muted" };
   if (diff === 0) return { label: "aberta", tone: "green" };
-  return { label: "paga", tone: "muted" };
+  return { label: "fechada", tone: "muted" };
 }
 
 const FALLBACK_CAT_COLORS = ["#F2994A", "#4A90D9", "#27AE60", "#E84393", "#EB5757", "#9B59B6", "#17A2A0", "#6C5CE7", "#F1C40F", "#FF7F6B"];
@@ -2283,6 +2321,32 @@ function ImportCSVModal({ cards, userId, onImport, onClose }) {
 
 /* ---------------------------------- HISTORY (reusable) ---------------------------------- */
 
+function PayInvoiceModal({ card, monthKey, invoiceTotal, alreadyPaid, onConfirm, onClose }) {
+  const remaining = Math.max(invoiceTotal - alreadyPaid, 0);
+  const [amount, setAmount] = useState(remaining > 0 ? String(remaining.toFixed(2)) : "");
+  const [saving, setSaving] = useState(false);
+  const submit = async () => {
+    const value = parseFloat(amount);
+    if (!value || value <= 0) return;
+    setSaving(true);
+    try { await onConfirm(value); onClose(); } finally { setSaving(false); }
+  };
+  return (
+    <Modal title={`Pagar fatura · ${card.name}`} onClose={onClose}>
+      <p className="text-xs mb-4" style={{ color: C.muted }}>
+        Fatura de {monthLabel(monthKey)} · total {brl(invoiceTotal)}{alreadyPaid > 0 ? ` · já pago ${brl(alreadyPaid)}` : ""}
+      </p>
+      <Field label="Valor pago (R$)"><CurrencyInput value={amount} onChange={setAmount} /></Field>
+      <div className="flex gap-2 mb-4">
+        <button onClick={() => setAmount(String(remaining.toFixed(2)))} className="text-xs px-3 py-1.5 rounded-lg" style={{ background: C.bgSoft, color: C.text, border: `1px solid ${C.border}` }}>
+          Valor total restante
+        </button>
+      </div>
+      <Btn full onClick={submit} disabled={saving}>{saving ? "Salvando..." : "Confirmar pagamento"}</Btn>
+    </Modal>
+  );
+}
+
 function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [filterPerson, setFilterPerson] = useState("all");
   const [filterCard, setFilterCard] = useState("all");
@@ -2383,6 +2447,14 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const invoiceTotal = invoiceLineItems.reduce((s, e) => s + monthlyValue(e), 0);
   const invoiceSingleCard = filterCard !== "all" ? invoiceCards.find((c) => c.id === filterCard) : null;
   const invoiceStatus = invoiceSingleCard ? invoiceStatusInfo(invoiceSingleCard, selectedMonth) : null;
+  const invoicePaidTotal = invoiceSingleCard ? paidForInvoice(data.invoicePayments, invoiceSingleCard.id, selectedMonth) : 0;
+  const paymentStatus = invoiceSingleCard ? invoicePaymentStatus(invoiceSingleCard, selectedMonth, invoiceTotal, invoicePaidTotal) : null;
+  const [showPayModal, setShowPayModal] = useState(false);
+  const handlePayInvoice = async (amount) => {
+    await saveInvoicePayment({ cardId: invoiceSingleCard.id, monthKey: selectedMonth, amount, paidAt: new Date().toISOString().slice(0, 10), profileId: profile.id });
+    await logActivity(profile.id, "pagou", `Registrou pagamento de ${brl(amount)} na fatura de ${monthLabel(selectedMonth)} (${invoiceSingleCard.name})`);
+    await refresh();
+  };
 
   useEffect(() => {
     if (viewMode !== "faturas") return;
@@ -2527,6 +2599,27 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
               value={invoiceTotal}
               sub={invoiceStatus ? `${invoiceStatus.label === "aberta" ? "Fecha" : invoiceStatus.label === "futura" ? "Fecha" : "Fechou"} dia ${invoiceSingleCard.closing_day} · vence dia ${invoiceSingleCard.due_day}` : undefined}
             />
+            {invoiceSingleCard && paymentStatus && (
+              <div className="flex items-center justify-between gap-2 mb-3 -mt-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Chip tone={paymentStatus.tone}>{paymentStatus.label}</Chip>
+                  {invoicePaidTotal > 0 && (
+                    <span className="text-[11px]" style={{ color: C.muted }}>
+                      {brl(invoicePaidTotal)} pago{invoicePaidTotal < invoiceTotal ? ` de ${brl(invoiceTotal)}` : ""}
+                    </span>
+                  )}
+                </div>
+                {isAdmin && paymentStatus.label !== "futura" && paymentStatus.label !== "fatura atual" && (
+                  <button onClick={() => setShowPayModal(true)} className="text-xs font-medium shrink-0" style={{ color: C.gold }}>
+                    Registrar pagamento
+                  </button>
+                )}
+              </div>
+            )}
+            {showPayModal && (
+              <PayInvoiceModal card={invoiceSingleCard} monthKey={selectedMonth} invoiceTotal={invoiceTotal} alreadyPaid={invoicePaidTotal}
+                onConfirm={handlePayInvoice} onClose={() => setShowPayModal(false)} />
+            )}
             {invoiceLineItems.length > 0 && invoiceSingleCard && (
               <p className="text-[11px] mb-2 -mt-2" style={{ color: C.muted }}>
                 {invoiceLineItems.filter((e) => e.reconciled).length} de {invoiceLineItems.length} conferidos com o extrato
@@ -2753,7 +2846,7 @@ function MemberOverview({ profile, data, refresh }) {
       {myCards.length > 0 ? (
         <div className={`grid grid-cols-1 ${myCards.length > 1 ? "sm:grid-cols-2" : ""} gap-3`}>
           {myCards.map((c) => {
-            const used = data.expenses.filter((e) => e.card_id === c.id).reduce((s, e) => s + outstanding(e, now), 0);
+            const used = netUsedForCard(data.expenses, data.invoicePayments, c.id, now);
             return <CardWidget key={c.id} card={c} used={used} nextAmount={nextInvoiceProjection(c.id, data.expenses, now)} />;
           })}
         </div>
@@ -2842,7 +2935,7 @@ function AdminOverview({ profile, data, refresh }) {
         <h4 className="text-xs font-medium mb-1 tracking-wide uppercase" style={{ color: C.muted }}>Cartões</h4>
         <div className={`grid grid-cols-1 ${data.cards.length > 1 ? "sm:grid-cols-2" : ""} gap-3`}>
           {data.cards.map((c) => {
-            const used = data.expenses.filter((e) => e.card_id === c.id).reduce((s, e) => s + outstanding(e, now), 0);
+            const used = netUsedForCard(data.expenses, data.invoicePayments, c.id, now);
             return <CardWidget key={c.id} card={c} used={used} nextAmount={nextInvoiceProjection(c.id, data.expenses, now)} />;
           })}
           {data.cards.length === 0 && <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão cadastrado ainda." /></Panel>}
@@ -2865,7 +2958,7 @@ function AdminCards({ data, refresh, embedded }) {
 
   const totalLimit = data.cards.reduce((s, c) => s + c.card_limit, 0);
   const totalAvailable = data.cards.reduce((s, c) => {
-    const used = data.expenses.filter((e) => e.card_id === c.id).reduce((s2, e) => s2 + outstanding(e, now), 0);
+    const used = netUsedForCard(data.expenses, data.invoicePayments, c.id, now);
     return s + Math.max(c.card_limit - used, 0);
   }, 0);
 
@@ -2882,7 +2975,7 @@ function AdminCards({ data, refresh, embedded }) {
       <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
         {data.cards.length === 0 && <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão cadastrado ainda." /></Panel>}
         {data.cards.map((c) => {
-          const used = data.expenses.filter((e) => e.card_id === c.id).reduce((s, e) => s + outstanding(e, now), 0);
+          const used = netUsedForCard(data.expenses, data.invoicePayments, c.id, now);
           const names = data.profiles.filter((u) => c.memberIds.includes(u.id)).map((u) => firstName(u.name)).join(", ") || "ninguém ainda";
           return (
             <div key={c.id}>
@@ -3386,7 +3479,7 @@ function showLocalNotification(title, body) {
     try { new Notification(title, opts); } catch {}
   }
 }
-function useBillAlerts(cards, expenses) {
+function useBillAlerts(cards, expenses, payments) {
   useEffect(() => {
     if (!("Notification" in window)) return;
     if (Notification.permission === "default") Notification.requestPermission();
@@ -3394,7 +3487,7 @@ function useBillAlerts(cards, expenses) {
     const now = currentMonthKey();
     const today = new Date().toISOString().slice(0, 10);
     cards.forEach((c) => {
-      const used = expenses.filter((e) => e.card_id === c.id).reduce((s, e) => s + outstanding(e, now), 0);
+      const used = netUsedForCard(expenses, payments, c.id, now);
       const pct = c.card_limit ? (used / c.card_limit) * 100 : 0;
       const { daysUntilDue } = billingInfo(c);
       const keyLimit = `notif-limit-${c.id}-${today}`;
@@ -3536,7 +3629,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [showQuickIncome, setShowQuickIncome] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const myCards = accessibleCards(data, profile.id);
-  useBillAlerts(myCards, data.expenses);
+  useBillAlerts(myCards, data.expenses, data.invoicePayments);
   useBudgetAlerts(profile, data);
   useKeyboardShortcuts({
     onNewExpense: () => setShowQuickAdd(true),
@@ -3545,7 +3638,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   });
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
-    { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(myCards, data.expenses) },
+    { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(myCards, data.expenses, data.invoicePayments) },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
     { id: "investments", label: "Invest.", fullLabel: "Investimentos", icon: <PiggyBank size={18} /> },
   ];
@@ -3580,7 +3673,7 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
-  useBillAlerts(data.cards, data.expenses);
+  useBillAlerts(data.cards, data.expenses, data.invoicePayments);
   useBudgetAlerts(profile, data);
   useKeyboardShortcuts({
     onNewExpense: () => setShowQuickAdd(true),
@@ -3589,7 +3682,7 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   });
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
-    { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(data.cards, data.expenses) },
+    { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(data.cards, data.expenses, data.invoicePayments) },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
     { id: "investments", label: "Invest.", fullLabel: "Investimentos", icon: <PiggyBank size={18} /> },
   ];
