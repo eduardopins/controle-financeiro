@@ -2457,9 +2457,12 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
     .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date));
   const invoiceTotal = invoiceLineItems.reduce((s, e) => s + monthlyValue(e), 0);
   const invoiceSingleCard = filterCard !== "all" ? invoiceCards.find((c) => c.id === filterCard) : null;
-  const invoiceStatus = invoiceSingleCard ? invoiceStatusInfo(invoiceSingleCard, selectedMonth) : null;
+  const displayCard = invoiceSingleCard || invoiceCards[0] || myCards[0] || null;
+  const invoiceStatus = displayCard ? invoiceStatusInfo(displayCard, selectedMonth) : null;
   const invoicePaidTotal = invoiceSingleCard ? paidForInvoice(data.invoicePayments, invoiceSingleCard.id, selectedMonth) : 0;
-  const paymentStatus = invoiceSingleCard ? invoicePaymentStatus(invoiceSingleCard, selectedMonth, invoiceTotal, invoicePaidTotal) : null;
+  const paymentStatus = invoiceSingleCard
+    ? invoicePaymentStatus(invoiceSingleCard, selectedMonth, invoiceTotal, invoicePaidTotal)
+    : (invoiceStatus ? { label: invoiceStatus.label === "aberta" ? "fatura atual" : invoiceStatus.label === "futura" ? "futura" : "fechada", tone: invoiceStatus.label === "aberta" ? "gold" : "muted" } : null);
   const [showPayModal, setShowPayModal] = useState(false);
   const [showPayPicker, setShowPayPicker] = useState(false);
   const handlePayInvoice = async (amount) => {
@@ -2625,18 +2628,20 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
                   </span>
                 )}
               </div>
-              {invoiceSingleCard && (
+              {displayCard && (
                 <p className="relative text-xs mt-2" style={{ color: "var(--gold-contrast)", opacity: 0.85 }}>
-                  {invoiceStatus.label === "aberta" ? "Fecha" : invoiceStatus.label === "futura" ? "Fecha" : "Fechou"} dia {invoiceSingleCard.closing_day} · vence dia {invoiceSingleCard.due_day}
-                  {invoicePaidTotal > 0 && ` · ${brl(invoicePaidTotal)} pago${invoicePaidTotal < invoiceTotal ? ` de ${brl(invoiceTotal)}` : ""}`}
+                  {invoiceStatus.label === "aberta" ? "Fecha" : invoiceStatus.label === "futura" ? "Fecha" : "Fechou"} dia {displayCard.closing_day} · vence dia {displayCard.due_day}
+                  {invoiceSingleCard && invoicePaidTotal > 0 && ` · ${brl(invoicePaidTotal)} pago${invoicePaidTotal < invoiceTotal ? ` de ${brl(invoiceTotal)}` : ""}`}
                 </p>
               )}
               {isAdmin && (
-                <button onClick={() => (invoiceSingleCard ? setShowPayModal(true) : setShowPayPicker(true))}
-                  className="relative mt-4 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-semibold w-full sm:w-auto sm:px-6"
-                  style={{ background: "rgba(255,255,255,0.14)", color: "var(--gold-contrast)", border: "1px solid rgba(255,255,255,0.25)" }}>
-                  <DollarSign size={15} /> Pagar fatura
-                </button>
+                <div className="relative flex justify-end mt-4">
+                  <button onClick={() => (invoiceSingleCard ? setShowPayModal(true) : setShowPayPicker(true))}
+                    className="flex items-center justify-center gap-1.5 rounded-xl py-2.5 px-5 text-sm font-semibold"
+                    style={{ background: "rgba(255,255,255,0.14)", color: "var(--gold-contrast)", border: "1px solid rgba(255,255,255,0.25)" }}>
+                    <DollarSign size={15} /> Pagar fatura
+                  </button>
+                </div>
               )}
             </div>
 
