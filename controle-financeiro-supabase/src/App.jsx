@@ -669,12 +669,12 @@ async function deleteExpenseOverride(expenseId, monthKey) {
 function paidForInvoice(payments, cardId, monthKey) {
   return (payments || []).filter((p) => p.card_id === cardId && p.month_key === monthKey).reduce((s, p) => s + p.amount, 0);
 }
-function totalPaidForCard(payments, cardId) {
-  return (payments || []).filter((p) => p.card_id === cardId).reduce((s, p) => s + p.amount, 0);
+function totalPaidForCard(payments, cardId, now) {
+  return (payments || []).filter((p) => p.card_id === cardId && (!now || p.month_key >= now)).reduce((s, p) => s + p.amount, 0);
 }
 function netUsedForCard(expenses, payments, cardId, now) {
   const used = expenses.filter((e) => e.card_id === cardId).reduce((s, e) => s + outstanding(e, now), 0);
-  return Math.max(used - totalPaidForCard(payments, cardId), 0);
+  return Math.max(used - totalPaidForCard(payments, cardId, now), 0);
 }
 function invoiceDueDate(monthKey, dueDay) {
   const [y, m] = monthKey.split("-").map(Number);
@@ -1410,13 +1410,14 @@ function CardWidget({ card, used, nextAmount }) {
       {/* detalhes / limite */}
       <div className="p-4" style={{ background: C.surface }}>
         <div className="flex items-baseline justify-between mb-1.5">
-          <span className="text-[11px]" style={{ color: C.muted }}>disponível</span>
+          <span className="text-[11px]" style={{ color: C.muted }}>
+            disponível · <span style={{ color: tone === "rose" ? C.rose : tone === "gold" ? C.gold : C.green, fontWeight: 700 }}>{pct.toFixed(0)}% usado</span>
+          </span>
           <Amount value={Math.max(card.card_limit - used, 0)} size="text-base" tone={tone === "rose" ? "rose" : undefined} />
         </div>
         <ProgressBar pct={pct} tone={tone} />
         <div className="flex items-center justify-between mt-1.5 text-[11px]" style={{ color: C.muted }}>
           <span>usado {brl(used)}</span>
-          <span style={{ color: tone === "rose" ? C.rose : tone === "gold" ? C.gold : C.muted, fontWeight: 600 }}>{pct.toFixed(0)}%</span>
           <span>limite {brl(card.card_limit)}</span>
         </div>
         <div className="mt-2 text-[10px]" style={{ color: C.muted }}>
