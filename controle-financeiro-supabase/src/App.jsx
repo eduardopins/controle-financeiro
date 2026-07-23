@@ -190,6 +190,19 @@ function toCSV(rows, cardName, personName) {
   ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(";"));
   return [header.join(";"), ...lines].join("\n");
 }
+function toCSVAnnual(expenses, profileIds, year) {
+  const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}`);
+  const scoped = expenses.filter((e) => profileIds.includes(e.profile_id));
+  const cats = [...new Set(scoped.map((e) => e.category))].sort();
+  const monthTotal = (cat, mk) => scoped.filter((e) => e.category === cat && isDueIn(e, mk)).reduce((s, e) => s + monthlyValue(e), 0);
+  const header = ["Categoria", ...months.map((mk) => monthLabel(mk)), "Total anual"];
+  const rows = cats.map((cat) => {
+    const values = months.map((mk) => monthTotal(cat, mk));
+    return [cat, ...values.map((v) => v.toFixed(2)), values.reduce((s, v) => s + v, 0).toFixed(2)];
+  });
+  const totalRow = ["TOTAL", ...months.map((_, i) => rows.reduce((s, r) => s + parseFloat(r[i + 1]), 0).toFixed(2)), rows.reduce((s, r) => s + parseFloat(r[13]), 0).toFixed(2)];
+  return [header, ...rows, totalRow].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(";")).join("\n");
+}
 function downloadCSV(content, filename) {
   const blob = new Blob(["\uFEFF" + content], { type: "text/csv;charset=utf-8;" });
   const link = document.createElement("a");
@@ -597,7 +610,7 @@ function BottomNav({ tabs, tab, setTab }) {
 /* ---------------------------------- data layer (Supabase) ---------------------------------- */
 
 async function loadAll() {
-  const [profiles, cards, cardAccess, expenses, budgets, incomes, customCategories, investments, investmentAccess, investmentTx, activityLog, invoicePayments, expenseOverrides, reconciliations] = await Promise.all([
+  const [profiles, cards, cardAccess, expenses, budgets, incomes, customCategories, investments, investmentAccess, investmentTx, activityLog, invoicePayments, expenseOverrides, reconciliations, unmatchedTx] = await Promise.all([
     supabase.from("profiles").select("*"),
     supabase.from("cards").select("*"),
     supabase.from("card_access").select("*"),
@@ -612,6 +625,7 @@ async function loadAll() {
     supabase.from("invoice_payments").select("*"),
     supabase.from("expense_overrides").select("*"),
     supabase.from("expense_reconciliations").select("*"),
+    supabase.from("pluggy_unmatched_transactions").select("*").eq("dismissed", false).order("transaction_date", { ascending: false }),
   ]);
   const cardsWithMembers = (cards.data || []).map((c) => ({
     ...c,
@@ -621,10 +635,13 @@ async function loadAll() {
     ...inv,
     memberIds: (investmentAccess.data || []).filter((a) => a.investment_id === inv.id).map((a) => a.profile_id),
   }));
+  const allExpenses = expenses.data || [];
+  const thirtyDaysAgo = Date.now() - 30 * 86400000;
   return {
     profiles: profiles.data || [],
     cards: cardsWithMembers,
-    expenses: expenses.data || [],
+    expenses: allExpenses.filter((e) => !e.deleted_at),
+    deletedExpenses: allExpenses.filter((e) => e.deleted_at && new Date(e.deleted_at).getTime() > thirtyDaysAgo),
     budgets: budgets.data || [],
     incomes: incomes.data || [],
     customCategories: customCategories.data || [],
@@ -634,6 +651,7 @@ async function loadAll() {
     invoicePayments: invoicePayments.data || [],
     expenseOverrides: expenseOverrides.data || [],
     reconciliations: reconciliations.data || [],
+    unmatchedTransactions: unmatchedTx.data || [],
   };
 }
 
@@ -693,6 +711,10 @@ async function syncPluggyCards() {
   const { data, error } = await supabase.functions.invoke("pluggy-sync-cards");
   if (error) throw error;
   return data;
+}
+async function dismissUnmatchedTransaction(id) {
+  const { error } = await supabase.from("pluggy_unmatched_transactions").update({ dismissed: true }).eq("id", id);
+  if (error) throw error;
 }
 async function syncPluggyTransactions() {
   const { data, error } = await supabase.functions.invoke("pluggy-sync-transactions");
@@ -765,6 +787,14 @@ async function saveExpense(exp) {
   if (error) throw error;
 }
 async function deleteExpense(exp) {
+  const { error } = await supabase.from("expenses").update({ deleted_at: new Date().toISOString() }).eq("id", exp.id);
+  if (error) throw error;
+}
+async function restoreExpense(exp) {
+  const { error } = await supabase.from("expenses").update({ deleted_at: null }).eq("id", exp.id);
+  if (error) throw error;
+}
+async function permanentlyDeleteExpense(exp) {
   const { error } = await supabase.from("expenses").delete().eq("id", exp.id);
   if (error) throw error;
 }
@@ -2620,6 +2650,37 @@ function MonthOverrideModal({ exp, monthKey, currentAmount, hasOverride, onSave,
   );
 }
 
+function TrashModal({ deletedExpenses, cardName, personName, onRestore, onPermanentDelete, onClose }) {
+  return (
+    <Modal title="Lixeira" onClose={onClose}>
+      <p className="text-xs mb-4" style={{ color: C.muted }}>Gastos excluídos ficam aqui por 30 dias antes de sumir de vez.</p>
+      {deletedExpenses.length === 0 ? (
+        <EmptyState icon={<Trash2 size={28} />} text="Nada na lixeira agora." />
+      ) : (
+        <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+          {deletedExpenses.map((exp) => {
+            const daysLeft = Math.max(30 - Math.floor((Date.now() - new Date(exp.deleted_at).getTime()) / 86400000), 0);
+            return (
+              <div key={exp.id} className="flex items-center justify-between gap-2 py-2" style={{ borderBottom: `1px solid ${C.border}` }}>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium truncate" style={{ color: C.text }}>{exp.description}</div>
+                  <div className="text-[11px]" style={{ color: C.muted }}>
+                    {formatShortDate(exp.purchase_date)} · {cardName(exp.card_id)} · {brl(exp.total_amount)} · some em {daysLeft} {daysLeft === 1 ? "dia" : "dias"}
+                  </div>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button onClick={() => onRestore(exp)} className="text-xs font-medium px-2.5 py-1.5 rounded-lg" style={{ background: C.bgSoft, border: `1px solid ${C.border}`, color: C.gold }}>Restaurar</button>
+                  <button onClick={() => onPermanentDelete(exp)}><Trash2 size={15} color={C.rose} /></button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [filterPerson, setFilterPerson] = useState("all");
   const [filterCard, setFilterCard] = useState("all");
@@ -2677,11 +2738,22 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
     const desc = arr[0]?.description || "gasto";
     await logActivity(profile.id, isEdit ? "editou" : "criou", `${isEdit ? "Editou" : "Lançou"} o gasto "${desc}"`);
   };
+  const [showTrash, setShowTrash] = useState(false);
   const handleDelete = async (exp) => {
-    if (!window.confirm("Excluir este gasto?")) return;
+    if (!window.confirm("Excluir este gasto? Ele fica na lixeira por 30 dias, dá pra restaurar depois.")) return;
     await deleteExpense(exp);
     await refresh();
     await logActivity(profile.id, "excluiu", `Excluiu o gasto "${exp.description}"`);
+  };
+  const handleRestore = async (exp) => {
+    await restoreExpense(exp);
+    await refresh();
+    await logActivity(profile.id, "restaurou", `Restaurou o gasto "${exp.description}" da lixeira`);
+  };
+  const handlePermanentDelete = async (exp) => {
+    if (!window.confirm(`Excluir "${exp.description}" de vez? Não dá pra desfazer.`)) return;
+    await permanentlyDeleteExpense(exp);
+    await refresh();
   };
   const handleToggleReconciled = async (exp, monthKey, value) => { await setExpenseReconciled(exp.id, monthKey, profile.id, value); await refresh(); };
   const handleToggleReconciledGroup = async (parts, monthKey, value) => {
@@ -2785,6 +2857,15 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16">
       <ScreenHeader title={viewMode === "cards" ? "Cartões" : "Faturas"} subtitle={viewMode === "cards" ? "Limites, vencimentos e acessos" : (isAdmin ? "Todos os lançamentos" : "Seus lançamentos")} />
+      {isAdmin && data.deletedExpenses.length > 0 && (
+        <button onClick={() => setShowTrash(true)} className="flex items-center gap-1.5 text-xs mb-3 -mt-2" style={{ color: C.muted }}>
+          <Trash2 size={12} /> Lixeira ({data.deletedExpenses.length})
+        </button>
+      )}
+      {showTrash && (
+        <TrashModal deletedExpenses={data.deletedExpenses} cardName={cardName} personName={personName}
+          onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onClose={() => setShowTrash(false)} />
+      )}
 
       {isAdmin && (
         <div className="flex gap-2 mb-3">
@@ -2800,7 +2881,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
       )}
 
       {viewMode === "cards" ? (
-        <AdminCards data={data} refresh={refresh} embedded />
+        <AdminCards data={data} refresh={refresh} embedded profile={profile} />
       ) : (
         <>
       {isAdmin && (
@@ -3348,7 +3429,7 @@ function AdminOverview({ profile, data, refresh }) {
 
 /* ---------------------------------- ADMIN: CARDS ---------------------------------- */
 
-function AdminCards({ data, refresh, embedded }) {
+function AdminCards({ data, refresh, embedded, profile }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [syncing, setSyncing] = useState(false);
@@ -3358,6 +3439,7 @@ function AdminCards({ data, refresh, embedded }) {
   const handleSave = async (card) => { await saveCard(card); await refresh(); };
   const handleDelete = async (card) => { if (!window.confirm(`Excluir o cartão "${card.name}"? Isso também remove os gastos lançados nele.`)) return; await deleteCard(card); await refresh(); };
   const [syncSummary, setSyncSummary] = useState(null);
+  const [quickAddTx, setQuickAddTx] = useState(null);
   const handleSync = async () => {
     setSyncing(true); setSyncError(""); setSyncSummary(null);
     try {
@@ -3368,6 +3450,14 @@ function AdminCards({ data, refresh, embedded }) {
     }
     catch (e) { setSyncError(friendlyError(e)); }
     finally { setSyncing(false); }
+  };
+  const handleDismissTx = async (tx) => { await dismissUnmatchedTransaction(tx.id); await refresh(); };
+  const handleSaveFromTx = async (expArr) => {
+    const arr = Array.isArray(expArr) ? expArr : [expArr];
+    for (const e of arr) await saveExpense(e);
+    await handleDismissTx(quickAddTx);
+    setQuickAddTx(null);
+    await refresh();
   };
   const handleApplyPluggy = async (card) => {
     const updates = {};
@@ -3407,20 +3497,54 @@ function AdminCards({ data, refresh, embedded }) {
         <Panel className="mt-2">
           <h4 className="text-[10px] uppercase tracking-wide mb-2" style={{ color: C.muted }}>Conferência automática</h4>
           <div className="space-y-1.5 text-xs">
-            {syncSummary.map((s) => (
-              <div key={s.card} style={{ color: C.text }}>
-                <b>{s.card}:</b>{" "}
+            {syncSummary.map((s, i) => (
+              <div key={i} style={{ color: C.text }}>
+                <b>{s.nome}</b> <span style={{ color: C.muted }}>({s.tipo}):</span>{" "}
                 {s.ok ? (
                   <>
-                    <span style={{ color: C.green }}>{s.conferidos_agora} conferido{s.conferidos_agora === 1 ? "" : "s"} agora</span>
-                    {s.ambiguos_precisam_conferencia_manual > 0 && <span style={{ color: C.amber }}> · {s.ambiguos_precisam_conferencia_manual} precisam de conferência manual</span>}
-                    {s.sem_correspondencia_no_app > 0 && <span style={{ color: C.muted }}> · {s.sem_correspondencia_no_app} no banco sem gasto lançado no app</span>}
+                    <span style={{ color: C.green }}>{s.matched} conferido{s.matched === 1 ? "" : "s"} agora</span>
+                    {s.ambiguous > 0 && <span style={{ color: C.amber }}> · {s.ambiguous} precisam de conferência manual</span>}
+                    {s.unmatched > 0 && <span style={{ color: C.muted }}> · {s.unmatched} sem gasto lançado no app</span>}
                   </>
-                ) : <span style={{ color: C.rose }}>erro</span>}
+                ) : <span style={{ color: C.rose }}>erro — {typeof s.error === "string" ? s.error : JSON.stringify(s.error)}</span>}
               </div>
             ))}
           </div>
         </Panel>
+      )}
+      {data.unmatchedTransactions.length > 0 && (
+        <Panel className="mt-2">
+          <h4 className="text-[10px] uppercase tracking-wide mb-2" style={{ color: C.muted }}>
+            Transações do banco sem gasto lançado ({data.unmatchedTransactions.length})
+          </h4>
+          <div className="space-y-2">
+            {data.unmatchedTransactions.map((tx) => (
+              <div key={tx.id} className="flex items-center justify-between gap-2 py-1.5" style={{ borderBottom: `1px solid ${C.border}` }}>
+                <div className="min-w-0">
+                  <div className="text-sm truncate" style={{ color: C.text }}>{tx.description || "Sem descrição"}</div>
+                  <div className="text-[11px]" style={{ color: C.muted }}>
+                    {formatShortDate(tx.transaction_date)} · {tx.card_id ? (data.cards.find((c) => c.id === tx.card_id)?.name || "cartão") : "Pix/dinheiro"} · {brl(tx.amount)}
+                  </div>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button onClick={() => setQuickAddTx(tx)} className="text-xs font-medium px-2.5 py-1.5 rounded-lg" style={{ background: C.gold, color: "var(--gold-contrast)" }}>+ Adicionar</button>
+                  <button onClick={() => handleDismissTx(tx)} className="text-xs" style={{ color: C.muted }}>Ignorar</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
+      {quickAddTx && (
+        <ExpenseForm
+          cards={data.cards} userId={profile?.id} allProfiles={data.profiles} customCategories={data.customCategories}
+          creatorId={profile?.id} canRefund={false}
+          initial={{
+            description: quickAddTx.description || "", total_amount: quickAddTx.amount, purchase_date: quickAddTx.transaction_date,
+            card_id: quickAddTx.card_id, category: CATEGORIES[0], installments: 1,
+          }}
+          onSave={handleSaveFromTx} onClose={() => setQuickAddTx(null)}
+        />
       )}
       <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
         {data.cards.length === 0 && <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão cadastrado ainda." /></Panel>}
@@ -3817,6 +3941,10 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
             })()}
           </div>
         )}
+        <button onClick={() => downloadCSV(toCSVAnnual(data.expenses, scopeIds, summaryYear), `resumo-anual-${summaryYear}.csv`)}
+          className="flex items-center gap-1.5 text-xs font-medium mt-3" style={{ color: C.gold }}>
+          <Download size={13} /> Exportar resumo anual por categoria (CSV)
+        </button>
       </Panel>
 
       <Panel>
