@@ -2118,27 +2118,8 @@ function GoalsScreen({ profile, data, refresh, embedded }) {
   );
 }
 
-function invoiceMonths(expenses, cardIds, now) {
-  const forward = Array.from({ length: 12 }, (_, i) => addMonthsToKey(now, i));
-  const pastSet = new Set();
-  expenses.filter((e) => cardIds.includes(e.card_id)).forEach((e) => {
-    if (e.is_recurring) {
-      let mk = e.first_month;
-      let guard = 0;
-      while (diffMonths(mk, now) > 0 && guard < 600) {
-        pastSet.add(mk);
-        mk = addMonthsToKey(mk, 1);
-        guard++;
-      }
-    } else {
-      for (let i = 0; i < e.installments; i++) {
-        const mk = addMonthsToKey(e.first_month, i);
-        if (diffMonths(mk, now) > 0) pastSet.add(mk);
-      }
-    }
-  });
-  const past = Array.from(pastSet).sort();
-  return [...past, ...forward];
+function invoiceMonths(now) {
+  return Array.from({ length: 14 }, (_, i) => addMonthsToKey(now, i - 1));
 }
 function invoiceStatusInfo(card, monthKey) {
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -2348,6 +2329,32 @@ function PayInvoiceModal({ card, monthKey, invoiceTotal, alreadyPaid, onConfirm,
   );
 }
 
+function ChoosePayCardModal({ cards, monthKey, expenses, payments, onChoose, onClose }) {
+  return (
+    <Modal title={`Pagar fatura de ${monthLabel(monthKey)}`} onClose={onClose}>
+      <p className="text-xs mb-4" style={{ color: C.muted }}>Escolha qual cartão você quer pagar.</p>
+      <div className="space-y-2">
+        {cards.map((c) => {
+          const total = expenses.filter((e) => e.card_id === c.id && isDueIn(e, monthKey)).reduce((s, e) => s + monthlyValue(e), 0);
+          const paid = paidForInvoice(payments, c.id, monthKey);
+          const status = invoicePaymentStatus(c, monthKey, total, paid);
+          return (
+            <button key={c.id} onClick={() => onChoose(c)} className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-left transition-all"
+              style={{ background: C.bgSoft, border: `1px solid ${C.border}` }}>
+              <div className="min-w-0">
+                <div className="text-sm font-medium truncate" style={{ color: C.text }}>{c.name}</div>
+                <Chip tone={status.tone}>{status.label}</Chip>
+              </div>
+              <Amount value={total} size="text-sm" />
+            </button>
+          );
+        })}
+        {cards.length === 0 && <EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão disponível." />}
+      </div>
+    </Modal>
+  );
+}
+
 function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [filterPerson, setFilterPerson] = useState("all");
   const [filterCard, setFilterCard] = useState(() => {
@@ -2443,9 +2450,8 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
   const invoiceScopedExpenses = baseExpenses.filter((e) => !isAdmin || filterPerson === "all" || e.profile_id === filterPerson);
   const invoiceCards = filterCard === "all" ? myCards : myCards.filter((c) => c.id === filterCard);
-  const invoiceCardIdsForMonths = [...new Set([...invoiceScopedExpenses.map((e) => e.card_id).filter(Boolean), ...myCards.map((c) => c.id)])];
   const invoiceNow = openInvoiceMonth(myCards);
-  const invoiceMonthsList = invoiceMonths(invoiceScopedExpenses, invoiceCardIdsForMonths, invoiceNow).filter((mk) => /^\d{4}-\d{2}$/.test(mk));
+  const invoiceMonthsList = invoiceMonths(invoiceNow).filter((mk) => /^\d{4}-\d{2}$/.test(mk));
   const invoiceLineItems = invoiceScopedExpenses
     .filter((e) => (filterCard === "all" || e.card_id === filterCard) && isDueIn(e, selectedMonth))
     .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date));
@@ -2455,6 +2461,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const invoicePaidTotal = invoiceSingleCard ? paidForInvoice(data.invoicePayments, invoiceSingleCard.id, selectedMonth) : 0;
   const paymentStatus = invoiceSingleCard ? invoicePaymentStatus(invoiceSingleCard, selectedMonth, invoiceTotal, invoicePaidTotal) : null;
   const [showPayModal, setShowPayModal] = useState(false);
+  const [showPayPicker, setShowPayPicker] = useState(false);
   const handlePayInvoice = async (amount) => {
     await saveInvoicePayment({ cardId: invoiceSingleCard.id, monthKey: selectedMonth, amount, paidAt: new Date().toISOString().slice(0, 10), profileId: profile.id });
     await logActivity(profile.id, "pagou", `Registrou pagamento de ${brl(amount)} na fatura de ${monthLabel(selectedMonth)} (${invoiceSingleCard.name})`);
@@ -2602,29 +2609,42 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
               </div>
             </div>
 
-            <HeroPanel
-              label={`Fatura de ${monthLabel(selectedMonth)}`}
-              value={invoiceTotal}
-              sub={invoiceStatus ? `${invoiceStatus.label === "aberta" ? "Fecha" : invoiceStatus.label === "futura" ? "Fecha" : "Fechou"} dia ${invoiceSingleCard.closing_day} · vence dia ${invoiceSingleCard.due_day}` : undefined}
-            />
-            {invoiceSingleCard && paymentStatus && (
-              <div className="flex items-center justify-between gap-2 mb-3 -mt-1.5">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Chip tone={paymentStatus.tone}>{paymentStatus.label}</Chip>
-                  {invoicePaidTotal > 0 && (
-                    <span className="text-[11px]" style={{ color: C.muted }}>
-                      {brl(invoicePaidTotal)} pago{invoicePaidTotal < invoiceTotal ? ` de ${brl(invoiceTotal)}` : ""}
-                    </span>
-                  )}
+            <div className="rounded-3xl p-6 mb-4 relative overflow-hidden" style={{ background: HERO_GRADIENT, boxShadow: "0 14px 34px rgba(0,0,0,0.35)" }}>
+              <div style={{ position: "absolute", right: -40, top: -40, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
+              <div className="relative flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-[11px] opacity-80" style={{ color: "var(--gold-contrast)" }}>Fatura de {monthLabel(selectedMonth)}</div>
+                  <div className="text-2xl sm:text-3xl font-bold mt-1" style={{ color: "var(--gold-contrast)", fontFamily: "'IBM Plex Mono', monospace" }}>{brl(invoiceTotal)}</div>
                 </div>
-                {isAdmin && paymentStatus.label !== "futura" && (
-                  <button onClick={() => setShowPayModal(true)} className="text-xs font-medium shrink-0" style={{ color: C.gold }}>
-                    Registrar pagamento
-                  </button>
+                {paymentStatus && (
+                  <span className="shrink-0 rounded-full px-3 py-1.5 text-xs font-bold" style={{
+                    background: paymentStatus.tone === "gold" ? "rgba(255,255,255,0.9)" : paymentStatus.tone === "green" ? "#2F7A5C" : paymentStatus.tone === "rose" ? "#C0504D" : paymentStatus.tone === "amber" ? "#CBA05A" : "rgba(255,255,255,0.15)",
+                    color: paymentStatus.tone === "gold" ? "#1A1607" : "#fff",
+                  }}>
+                    {paymentStatus.label}
+                  </span>
                 )}
               </div>
+              {invoiceSingleCard && (
+                <p className="relative text-xs mt-2" style={{ color: "var(--gold-contrast)", opacity: 0.85 }}>
+                  {invoiceStatus.label === "aberta" ? "Fecha" : invoiceStatus.label === "futura" ? "Fecha" : "Fechou"} dia {invoiceSingleCard.closing_day} · vence dia {invoiceSingleCard.due_day}
+                  {invoicePaidTotal > 0 && ` · ${brl(invoicePaidTotal)} pago${invoicePaidTotal < invoiceTotal ? ` de ${brl(invoiceTotal)}` : ""}`}
+                </p>
+              )}
+              {isAdmin && (
+                <button onClick={() => (invoiceSingleCard ? setShowPayModal(true) : setShowPayPicker(true))}
+                  className="relative mt-4 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-semibold w-full sm:w-auto sm:px-6"
+                  style={{ background: "rgba(255,255,255,0.14)", color: "var(--gold-contrast)", border: "1px solid rgba(255,255,255,0.25)" }}>
+                  <DollarSign size={15} /> Pagar fatura
+                </button>
+              )}
+            </div>
+
+            {showPayPicker && (
+              <ChoosePayCardModal cards={invoiceCards.length ? invoiceCards : myCards} monthKey={selectedMonth} expenses={invoiceScopedExpenses} payments={data.invoicePayments}
+                onChoose={(c) => { setFilterCard(c.id); setShowPayPicker(false); setShowPayModal(true); }} onClose={() => setShowPayPicker(false)} />
             )}
-            {showPayModal && (
+            {showPayModal && invoiceSingleCard && (
               <PayInvoiceModal card={invoiceSingleCard} monthKey={selectedMonth} invoiceTotal={invoiceTotal} alreadyPaid={invoicePaidTotal}
                 onConfirm={handlePayInvoice} onClose={() => setShowPayModal(false)} />
             )}
