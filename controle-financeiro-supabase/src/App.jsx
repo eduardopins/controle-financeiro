@@ -694,6 +694,11 @@ async function syncPluggyCards() {
   if (error) throw error;
   return data;
 }
+async function syncPluggyTransactions() {
+  const { data, error } = await supabase.functions.invoke("pluggy-sync-transactions");
+  if (error) throw error;
+  return data;
+}
 async function applyPluggyValues(cardId, updates) {
   const { error } = await supabase.from("cards").update(updates).eq("id", cardId);
   if (error) throw error;
@@ -1493,7 +1498,11 @@ function GroupedExpenseRow({ parts, cardName, personName, viewerProfileId, showP
         </div>
         <div className="text-[11px] truncate" style={{ color: C.muted }}>
           {formatShortDate(primary.purchase_date)} · {primary.category} · {cardName}
-          {allReconciled && ` · conferido${primaryRecInfo?.reconciled_by ? ` por ${personName(primaryRecInfo.reconciled_by)}` : ""}`}
+          {allReconciled && (
+            primaryRecInfo?.source === "openfinance"
+              ? <span style={{ color: C.green }}> · verificado via Open Finance</span>
+              : ` · conferido${primaryRecInfo?.reconciled_by ? ` por ${personName(primaryRecInfo.reconciled_by)}` : ""}`
+          )}
         </div>
         <div className="text-[11px] truncate mt-0.5">
           {showPerson ? (
@@ -1552,7 +1561,11 @@ function ExpenseRow({ exp, cardName, personName, creatorName, contextMonth, onEd
           {exp.is_refund && " · reembolso"}
           {hasOverride && <span style={{ color: C.gold }}> · valor ajustado neste mês</span>}
           {exp.created_by && exp.created_by !== exp.profile_id && ` · lançado por ${creatorName}`}
-          {isReconciled && ` · conferido${recInfo.reconciled_by && resolveProfileName ? ` por ${resolveProfileName(recInfo.reconciled_by)}` : ""}`}
+          {isReconciled && (
+            recInfo.source === "openfinance"
+              ? <span style={{ color: C.green }}> · verificado via Open Finance</span>
+              : ` · conferido${recInfo.reconciled_by && resolveProfileName ? ` por ${resolveProfileName(recInfo.reconciled_by)}` : ""}`
+          )}
         </div>
       </div>
       <Amount value={displayAmount} size="text-sm" tone={exp.is_refund ? "green" : hasOverride ? "gold" : undefined} />
@@ -3344,9 +3357,15 @@ function AdminCards({ data, refresh, embedded }) {
 
   const handleSave = async (card) => { await saveCard(card); await refresh(); };
   const handleDelete = async (card) => { if (!window.confirm(`Excluir o cartão "${card.name}"? Isso também remove os gastos lançados nele.`)) return; await deleteCard(card); await refresh(); };
+  const [syncSummary, setSyncSummary] = useState(null);
   const handleSync = async () => {
-    setSyncing(true); setSyncError("");
-    try { await syncPluggyCards(); await refresh(); }
+    setSyncing(true); setSyncError(""); setSyncSummary(null);
+    try {
+      await syncPluggyCards();
+      const txResult = await syncPluggyTransactions();
+      setSyncSummary(txResult?.summary || null);
+      await refresh();
+    }
     catch (e) { setSyncError(friendlyError(e)); }
     finally { setSyncing(false); }
   };
@@ -3384,6 +3403,25 @@ function AdminCards({ data, refresh, embedded }) {
         </button>
       )}
       {syncError && <p className="text-xs mt-2" style={{ color: C.rose }}>{syncError}</p>}
+      {syncSummary && (
+        <Panel className="mt-2">
+          <h4 className="text-[10px] uppercase tracking-wide mb-2" style={{ color: C.muted }}>Conferência automática</h4>
+          <div className="space-y-1.5 text-xs">
+            {syncSummary.map((s) => (
+              <div key={s.card} style={{ color: C.text }}>
+                <b>{s.card}:</b>{" "}
+                {s.ok ? (
+                  <>
+                    <span style={{ color: C.green }}>{s.conferidos_agora} conferido{s.conferidos_agora === 1 ? "" : "s"} agora</span>
+                    {s.ambiguos_precisam_conferencia_manual > 0 && <span style={{ color: C.amber }}> · {s.ambiguos_precisam_conferencia_manual} precisam de conferência manual</span>}
+                    {s.sem_correspondencia_no_app > 0 && <span style={{ color: C.muted }}> · {s.sem_correspondencia_no_app} no banco sem gasto lançado no app</span>}
+                  </>
+                ) : <span style={{ color: C.rose }}>erro</span>}
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
       <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
         {data.cards.length === 0 && <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão cadastrado ainda." /></Panel>}
         {sortedCards.map((c) => {
@@ -3567,6 +3605,7 @@ function ActivityLogScreen({ data, embedded }) {
 }
 
 function ReportsScreen({ profile, data, refresh, isAdmin }) {
+  const isDesktop = useIsDesktop();
   const relevantCards = isAdmin ? data.cards : accessibleCards(data, profile.id);
   const now = openInvoiceMonth(relevantCards);
   const prevMonth = addMonthsToKey(now, -1);
@@ -3816,14 +3855,14 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
 
       <Panel>
         <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Evolução mensal</h4>
-        <ResponsiveContainer width="100%" height={250}>
-          <BarChart data={evolution} barGap={6} barCategoryGap="30%">
-            <XAxis dataKey="month" stroke={C.muted} fontSize={10} axisLine={false} tickLine={false} interval={0} />
-            <YAxis stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} tickFormatter={compactNumber} width={38} />
+        <ResponsiveContainer width="100%" height={isDesktop ? 300 : 250}>
+          <BarChart data={evolution} barGap={isDesktop ? 4 : 6} barCategoryGap={isDesktop ? "18%" : "30%"}>
+            <XAxis dataKey="month" stroke={C.muted} fontSize={isDesktop ? 12 : 10} axisLine={false} tickLine={false} interval={0} />
+            <YAxis stroke={C.muted} fontSize={12} axisLine={false} tickLine={false} tickFormatter={compactNumber} width={42} />
             <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} cursor={{ fill: "rgba(124,58,237,0.06)" }} />
             {scopeProfiles.map((u, i) => (
-              <Bar key={u.id} dataKey={firstName(u.name)} radius={[6, 6, 0, 0]} fill={personColorFor(u.name, i)} maxBarSize={16}>
-                <LabelList dataKey={firstName(u.name)} position="top" formatter={(v) => (v > 0 ? compactNumber(v) : "")} fontSize={8} fill={C.muted} />
+              <Bar key={u.id} dataKey={firstName(u.name)} radius={[6, 6, 0, 0]} fill={personColorFor(u.name, i)} maxBarSize={isDesktop ? 40 : 16}>
+                <LabelList dataKey={firstName(u.name)} position="top" formatter={(v) => (v > 0 ? compactNumber(v) : "")} fontSize={isDesktop ? 12 : 8} fill={C.muted} />
               </Bar>
             ))}
           </BarChart>
@@ -4077,6 +4116,16 @@ function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, d
       </div>
     </div>
   );
+}
+
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(() => typeof window !== "undefined" && window.innerWidth >= 1024);
+  useEffect(() => {
+    const handler = () => setIsDesktop(window.innerWidth >= 1024);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+  return isDesktop;
 }
 
 function useKeyboardShortcuts({ onNewExpense, onNewIncome, onNavigate }) {
