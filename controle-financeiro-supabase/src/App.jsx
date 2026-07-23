@@ -577,7 +577,7 @@ function BottomNav({ tabs, tab, setTab }) {
 /* ---------------------------------- data layer (Supabase) ---------------------------------- */
 
 async function loadAll() {
-  const [profiles, cards, cardAccess, expenses, budgets, incomes, customCategories, investments, investmentAccess, investmentTx, activityLog, invoicePayments, expenseOverrides] = await Promise.all([
+  const [profiles, cards, cardAccess, expenses, budgets, incomes, customCategories, investments, investmentAccess, investmentTx, activityLog, invoicePayments, expenseOverrides, reconciliations] = await Promise.all([
     supabase.from("profiles").select("*"),
     supabase.from("cards").select("*"),
     supabase.from("card_access").select("*"),
@@ -591,6 +591,7 @@ async function loadAll() {
     supabase.from("activity_log").select("*").order("created_at", { ascending: false }).limit(100),
     supabase.from("invoice_payments").select("*"),
     supabase.from("expense_overrides").select("*"),
+    supabase.from("expense_reconciliations").select("*"),
   ]);
   const cardsWithMembers = (cards.data || []).map((c) => ({
     ...c,
@@ -612,6 +613,7 @@ async function loadAll() {
     activityLog: activityLog.data || [],
     invoicePayments: invoicePayments.data || [],
     expenseOverrides: expenseOverrides.data || [],
+    reconciliations: reconciliations.data || [],
   };
 }
 
@@ -726,10 +728,23 @@ async function deleteExpense(exp) {
   const { error } = await supabase.from("expenses").delete().eq("id", exp.id);
   if (error) throw error;
 }
-async function toggleExpenseReconciled(id, value, profileId) {
-  const payload = value ? { reconciled: true, reconciled_by: profileId, reconciled_at: new Date().toISOString() } : { reconciled: false, reconciled_by: null, reconciled_at: null };
-  const { error } = await supabase.from("expenses").update(payload).eq("id", id);
-  if (error) throw error;
+async function setExpenseReconciled(expenseId, monthKey, profileId, value) {
+  if (value) {
+    const { error } = await supabase.from("expense_reconciliations")
+      .upsert({ expense_id: expenseId, month_key: monthKey, reconciled_by: profileId, reconciled_at: new Date().toISOString() }, { onConflict: "expense_id,month_key" });
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from("expense_reconciliations").delete().eq("expense_id", expenseId).eq("month_key", monthKey);
+    if (error) throw error;
+  }
+}
+function reconciliationMap(list) {
+  const m = new Map();
+  (list || []).forEach((r) => m.set(`${r.expense_id}|${r.month_key}`, r));
+  return m;
+}
+function reconciledInfo(exp, monthKey, recMap) {
+  return recMap.get(`${exp.id}|${monthKey}`) || null;
 }
 async function saveBudget(profileId, category, monthly_limit) {
   const { error } = await supabase.from("budgets").upsert({ profile_id: profileId, category, monthly_limit }, { onConflict: "profile_id,category" });
@@ -1410,17 +1425,19 @@ function buildDisplayRows(list, allExpenses) {
 
 /* ---------------------------------- EXPENSE ROW ---------------------------------- */
 
-function GroupedExpenseRow({ parts, cardName, personName, viewerProfileId, showPerson, onEdit, onDeleteGroup, onToggleReconciled }) {
+function GroupedExpenseRow({ parts, cardName, personName, viewerProfileId, showPerson, onEdit, onDeleteGroup, onToggleReconciled, contextMonth, reconciliations }) {
   const primary = parts[0];
   const total = parts.reduce((s, p) => s + monthlyValue(p), 0);
   const myPart = parts.find((p) => p.profile_id === viewerProfileId);
   const editTarget = myPart || primary;
-  const allReconciled = parts.every((p) => p.reconciled);
+  const recInfos = contextMonth && reconciliations ? parts.map((p) => reconciliations.get(`${p.id}|${contextMonth}`)) : [];
+  const allReconciled = contextMonth ? recInfos.every(Boolean) && recInfos.length > 0 : false;
+  const primaryRecInfo = recInfos[0];
 
   return (
     <div className="flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}`, opacity: allReconciled ? 0.6 : 1 }}>
-      {onToggleReconciled && (
-        <button onClick={() => onToggleReconciled(parts, !allReconciled)} className="shrink-0" title={allReconciled ? "Conferido" : "Marcar como conferido"}>
+      {onToggleReconciled && contextMonth && (
+        <button onClick={() => onToggleReconciled(parts, contextMonth, !allReconciled)} className="shrink-0" title={allReconciled ? "Conferido" : "Marcar como conferido"}>
           {allReconciled ? <CheckSquare size={16} color={C.green} /> : <Square size={16} color={C.muted} />}
         </button>
       )}
@@ -1432,7 +1449,7 @@ function GroupedExpenseRow({ parts, cardName, personName, viewerProfileId, showP
         </div>
         <div className="text-[11px] truncate" style={{ color: C.muted }}>
           {formatShortDate(primary.purchase_date)} · {primary.category} · {cardName}
-          {allReconciled && ` · conferido${primary.reconciled_by ? ` por ${personName(primary.reconciled_by)}` : ""}`}
+          {allReconciled && ` · conferido${primaryRecInfo?.reconciled_by ? ` por ${personName(primaryRecInfo.reconciled_by)}` : ""}`}
         </div>
         <div className="text-[11px] truncate mt-0.5">
           {showPerson ? (
@@ -1457,22 +1474,24 @@ function GroupedExpenseRow({ parts, cardName, personName, viewerProfileId, showP
   );
 }
 
-function ExpenseRow({ exp, cardName, personName, creatorName, reconciledByName, contextMonth, onEdit, onDelete, showPerson, selectable, selected, onToggleSelect, onToggleReconciled, overrides, onEditMonthOverride }) {
+function ExpenseRow({ exp, cardName, personName, creatorName, contextMonth, onEdit, onDelete, showPerson, selectable, selected, onToggleSelect, onToggleReconciled, overrides, onEditMonthOverride, reconciliations, resolveProfileName }) {
   const installmentLabel = !exp.is_recurring && exp.installments > 1
     ? (contextMonth ? `${Math.min(Math.max(diffMonths(exp.first_month, contextMonth) + 1, 1), exp.installments)}/${exp.installments}` : `${exp.installments}x`)
     : null;
   const hasOverride = !!(contextMonth && overrides && overrides.has(`${exp.id}|${contextMonth}`));
   const displayAmount = monthlyValue(exp, contextMonth, overrides);
+  const recInfo = contextMonth && reconciliations ? reconciliations.get(`${exp.id}|${contextMonth}`) : null;
+  const isReconciled = !!recInfo;
   return (
-    <div className="flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}`, opacity: exp.reconciled ? 0.6 : 1 }}>
+    <div className="flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}`, opacity: isReconciled ? 0.6 : 1 }}>
       {selectable && (
         <button onClick={() => onToggleSelect(exp.id)} className="shrink-0">
           {selected ? <CheckSquare size={16} color={C.gold} /> : <Square size={16} color={C.muted} />}
         </button>
       )}
-      {!selectable && onToggleReconciled && (
-        <button onClick={() => onToggleReconciled(exp)} className="shrink-0" title={exp.reconciled ? "Conferido" : "Marcar como conferido"}>
-          {exp.reconciled ? <CheckSquare size={16} color={C.green} /> : <Square size={16} color={C.muted} />}
+      {!selectable && onToggleReconciled && contextMonth && (
+        <button onClick={() => onToggleReconciled(exp, contextMonth, !isReconciled)} className="shrink-0" title={isReconciled ? "Conferido" : "Marcar como conferido"}>
+          {isReconciled ? <CheckSquare size={16} color={C.green} /> : <Square size={16} color={C.muted} />}
         </button>
       )}
       <div className="w-2 h-2 rounded-full shrink-0" style={{ background: getCategoryColor(exp.category) }} />
@@ -1489,7 +1508,7 @@ function ExpenseRow({ exp, cardName, personName, creatorName, reconciledByName, 
           {exp.is_refund && " · reembolso"}
           {hasOverride && <span style={{ color: C.gold }}> · valor ajustado neste mês</span>}
           {exp.created_by && exp.created_by !== exp.profile_id && ` · lançado por ${creatorName}`}
-          {exp.reconciled && ` · conferido${reconciledByName ? ` por ${reconciledByName}` : ""}`}
+          {isReconciled && ` · conferido${recInfo.reconciled_by && resolveProfileName ? ` por ${resolveProfileName(recInfo.reconciled_by)}` : ""}`}
         </div>
       </div>
       <Amount value={displayAmount} size="text-sm" tone={exp.is_refund ? "green" : hasOverride ? "gold" : undefined} />
@@ -2463,13 +2482,14 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
     await refresh();
     await logActivity(profile.id, "excluiu", `Excluiu o gasto "${exp.description}"`);
   };
-  const handleToggleReconciled = async (exp) => { await toggleExpenseReconciled(exp.id, !exp.reconciled, profile.id); await refresh(); };
-  const handleToggleReconciledGroup = async (parts, value) => {
-    for (const p of parts) await toggleExpenseReconciled(p.id, value, profile.id);
+  const handleToggleReconciled = async (exp, monthKey, value) => { await setExpenseReconciled(exp.id, monthKey, profile.id, value); await refresh(); };
+  const handleToggleReconciledGroup = async (parts, monthKey, value) => {
+    for (const p of parts) await setExpenseReconciled(p.id, monthKey, profile.id, value);
     await refresh();
   };
   const [overrideTarget, setOverrideTarget] = useState(null);
   const expenseOverridesMap = overridesMap(data.expenseOverrides);
+  const reconciliationsMap = reconciliationMap(data.reconciliations);
   const handleSaveOverride = async (monthKey, amount) => {
     await saveExpenseOverride(overrideTarget.id, monthKey, amount);
     await logActivity(profile.id, "ajustou", `Ajustou o valor de "${overrideTarget.description}" em ${monthLabel(monthKey)} para ${brl(amount)}`);
@@ -2637,12 +2657,12 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
             ) : (
               buildDisplayRows(filtered, data.expenses).map((row) =>
                 row.isGroup ? (
-                  <GroupedExpenseRow key={row.groupId} parts={row.parts} cardName={cardName(row.primary.card_id)} personName={personName} viewerProfileId={profile.id} showPerson={isAdmin}
-                    onEdit={(e) => { setEditing(e); setShowForm(true); }} onDeleteGroup={handleDeleteGroup} onToggleReconciled={handleToggleReconciledGroup} />
-                ) : (
-                  <ExpenseRow key={row.exp.id} exp={row.exp} cardName={cardName(row.exp.card_id)} personName={personName(row.exp.profile_id)} creatorName={row.exp.created_by ? personName(row.exp.created_by) : ""} reconciledByName={row.exp.reconciled_by ? personName(row.exp.reconciled_by) : ""} showPerson={isAdmin}
-                    onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} onToggleReconciled={handleToggleReconciled} />
-                )
+                <GroupedExpenseRow key={row.groupId} parts={row.parts} cardName={cardName(row.primary.card_id)} personName={personName} viewerProfileId={profile.id} showPerson={isAdmin}
+                  onEdit={(e) => { setEditing(e); setShowForm(true); }} onDeleteGroup={handleDeleteGroup} />
+              ) : (
+                <ExpenseRow key={row.exp.id} exp={row.exp} cardName={cardName(row.exp.card_id)} personName={personName(row.exp.profile_id)} creatorName={row.exp.created_by ? personName(row.exp.created_by) : ""} showPerson={isAdmin}
+                  onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} />
+              )
               )
             )}
           </Panel>
@@ -2725,10 +2745,10 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
             {invoiceLineItems.length > 0 && invoiceSingleCard && (
               <>
                 <p className="text-[11px] mb-2 -mt-2" style={{ color: C.muted }}>
-                  {invoiceLineItems.filter((e) => e.reconciled).length} de {invoiceLineItems.length} conferidos com o extrato
+                  {invoiceLineItems.filter((e) => reconciliationsMap.has(`${e.id}|${selectedMonth}`)).length} de {invoiceLineItems.length} conferidos com o extrato
                 </p>
                 {(() => {
-                  const reconciledCount = invoiceLineItems.filter((e) => e.reconciled).length;
+                  const reconciledCount = invoiceLineItems.filter((e) => reconciliationsMap.has(`${e.id}|${selectedMonth}`)).length;
                   const daysToDue = Math.ceil((invoiceDueDate(selectedMonth, invoiceSingleCard.due_day) - new Date()) / 86400000);
                   const notPaid = paymentStatus?.label !== "fatura paga";
                   if (reconciledCount === 0 && notPaid && daysToDue <= 5 && daysToDue >= 0) {
@@ -2752,10 +2772,10 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
               ) : (
                 buildDisplayRows(invoiceLineItems, data.expenses).map((row) =>
                   row.isGroup ? (
-                    <GroupedExpenseRow key={row.groupId} parts={row.parts} cardName={cardName(row.primary.card_id)} personName={personName} viewerProfileId={profile.id} showPerson={isAdmin}
+                    <GroupedExpenseRow key={row.groupId} parts={row.parts} cardName={cardName(row.primary.card_id)} personName={personName} viewerProfileId={profile.id} showPerson={isAdmin} contextMonth={selectedMonth} reconciliations={reconciliationsMap}
                       onEdit={(e) => { setEditing(e); setShowForm(true); }} onDeleteGroup={handleDeleteGroup} onToggleReconciled={handleToggleReconciledGroup} />
                   ) : (
-                    <ExpenseRow key={row.exp.id} exp={row.exp} cardName={cardName(row.exp.card_id)} personName={personName(row.exp.profile_id)} creatorName={row.exp.created_by ? personName(row.exp.created_by) : ""} reconciledByName={row.exp.reconciled_by ? personName(row.exp.reconciled_by) : ""} showPerson={isAdmin} contextMonth={selectedMonth} overrides={expenseOverridesMap}
+                    <ExpenseRow key={row.exp.id} exp={row.exp} cardName={cardName(row.exp.card_id)} personName={personName(row.exp.profile_id)} creatorName={row.exp.created_by ? personName(row.exp.created_by) : ""} resolveProfileName={personName} showPerson={isAdmin} contextMonth={selectedMonth} overrides={expenseOverridesMap} reconciliations={reconciliationsMap}
                       onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} onToggleReconciled={handleToggleReconciled} onEditMonthOverride={(e) => setOverrideTarget(e)} />
                   )
                 )
@@ -2934,15 +2954,16 @@ function RecurringReviewModal({ profile, data, isAdmin, refresh, onClose }) {
   );
 }
 
-function RecentReconciliationBanner({ expenses, profileId, profiles }) {
+function RecentReconciliationBanner({ expenses, reconciliations, profileId, profiles }) {
   const cutoff = Date.now() - 7 * 86400000;
-  const recent = expenses.filter((e) =>
-    e.profile_id === profileId && e.reconciled && e.reconciled_by && e.reconciled_by !== profileId &&
-    e.reconciled_at && new Date(e.reconciled_at).getTime() >= cutoff
+  const myExpenseIds = new Set(expenses.filter((e) => e.profile_id === profileId).map((e) => e.id));
+  const recent = (reconciliations || []).filter((r) =>
+    myExpenseIds.has(r.expense_id) && r.reconciled_by && r.reconciled_by !== profileId &&
+    r.reconciled_at && new Date(r.reconciled_at).getTime() >= cutoff
   );
   if (recent.length === 0) return null;
   const byPerson = {};
-  recent.forEach((e) => { byPerson[e.reconciled_by] = (byPerson[e.reconciled_by] || 0) + 1; });
+  recent.forEach((r) => { byPerson[r.reconciled_by] = (byPerson[r.reconciled_by] || 0) + 1; });
   const parts = Object.entries(byPerson).map(([pid, count]) => {
     const name = firstName(profiles.find((p) => p.id === pid)?.name || "Alguém");
     return `${name} conferiu ${count} gasto${count > 1 ? "s" : ""} seu${count > 1 ? "s" : ""}`;
@@ -2980,7 +3001,7 @@ function MemberOverview({ profile, data, refresh }) {
         </button>
       </div>
       <MonthlyReviewBanner onOpen={() => setShowRecurringReview(true)} />
-      <RecentReconciliationBanner expenses={data.expenses} profileId={profile.id} profiles={data.profiles} />
+      <RecentReconciliationBanner expenses={data.expenses} reconciliations={data.reconciliations} profileId={profile.id} profiles={data.profiles} />
       <HeroPanel label="Total do mês" value={myMonthTotal} />
       <IncomeSection profile={profile} data={data} refresh={refresh} />
       <UpcomingBillsPanel cards={myCards.filter((c) => !c.archived)} expenses={data.expenses} />
@@ -3046,7 +3067,7 @@ function AdminOverview({ profile, data, refresh }) {
       </div>
       <div className="space-y-4">
         <MonthlyReviewBanner onOpen={() => setShowRecurringReview(true)} />
-        <RecentReconciliationBanner expenses={data.expenses} profileId={profile.id} profiles={data.profiles} />
+        <RecentReconciliationBanner expenses={data.expenses} reconciliations={data.reconciliations} profileId={profile.id} profiles={data.profiles} />
         <HeroPanel label={scopeActive ? buildHeading(scopeIds) : "Total do mês"} value={totalMonth} />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {byPerson.map((p) => {
@@ -3723,13 +3744,14 @@ function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, d
       </div>
 
       <nav className="flex flex-col gap-1 flex-1">
-        {tabs.map((t) => {
+        {tabs.map((t, i) => {
           const active = tab === t.id;
           return (
             <button key={t.id} onClick={() => setTab(t.id)}
               className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left relative">
               <span style={{ color: active ? C.gold : C.muted }}>{t.icon}</span>
-              <span style={{ color: active ? C.text : C.muted }}>{t.fullLabel || t.label}</span>
+              <span style={{ color: active ? C.text : C.muted }} className="flex-1">{t.fullLabel || t.label}</span>
+              <span className="text-[10px] shrink-0" style={{ color: C.border }}>{i + 1}</span>
               {t.badge && <span className="absolute right-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full" style={{ background: C.rose }} />}
               {active && <span className="absolute inset-0 rounded-xl -z-10" style={{ background: C.surface, border: `1px solid ${C.borderStrong}` }} />}
             </button>
@@ -3748,26 +3770,27 @@ function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, d
         </button>
       </div>
       <div className="flex items-center gap-x-3 gap-y-1 flex-wrap px-1 text-[10px]" style={{ color: C.muted }}>
-        <span><b style={{ color: C.text }}>N</b> gasto</span>
+        <span><b style={{ color: C.text }}>G</b> gasto</span>
         <span><b style={{ color: C.text }}>R</b> receita</span>
-        <span><b style={{ color: C.text }}>/</b> buscar</span>
+        <span><b style={{ color: C.text }}>1-4</b> navegar</span>
       </div>
     </div>
   );
 }
 
-function useKeyboardShortcuts({ onNewExpense, onNewIncome }) {
+function useKeyboardShortcuts({ onNewExpense, onNewIncome, onNavigate }) {
   useEffect(() => {
     const handler = (e) => {
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || document.activeElement?.isContentEditable) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "n" || e.key === "N") { e.preventDefault(); onNewExpense(); }
+      if (e.key === "g" || e.key === "G") { e.preventDefault(); onNewExpense(); }
       else if (e.key === "r" || e.key === "R") { e.preventDefault(); onNewIncome(); }
+      else if (["1", "2", "3", "4"].includes(e.key)) { e.preventDefault(); onNavigate(parseInt(e.key, 10) - 1); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onNewExpense, onNewIncome]);
+  }, [onNewExpense, onNewIncome, onNavigate]);
 }
 
 function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
@@ -3780,6 +3803,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   useKeyboardShortcuts({
     onNewExpense: () => setShowQuickAdd(true),
     onNewIncome: () => setShowQuickIncome(true),
+    onNavigate: (i) => setTab(["overview", "history", "reports", "investments"][i] || tab),
   });
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
@@ -3822,6 +3846,7 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   useKeyboardShortcuts({
     onNewExpense: () => setShowQuickAdd(true),
     onNewIncome: () => setShowQuickIncome(true),
+    onNavigate: (i) => setTab(["overview", "history", "reports", "investments"][i] || tab),
   });
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
