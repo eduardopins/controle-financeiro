@@ -2118,8 +2118,7 @@ function GoalsScreen({ profile, data, refresh, embedded }) {
   );
 }
 
-function invoiceMonths(expenses, cardIds) {
-  const now = currentMonthKey();
+function invoiceMonths(expenses, cardIds, now) {
   const forward = Array.from({ length: 12 }, (_, i) => addMonthsToKey(now, i));
   const pastSet = new Set();
   expenses.filter((e) => cardIds.includes(e.card_id)).forEach((e) => {
@@ -2445,7 +2444,8 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const invoiceScopedExpenses = baseExpenses.filter((e) => !isAdmin || filterPerson === "all" || e.profile_id === filterPerson);
   const invoiceCards = filterCard === "all" ? myCards : myCards.filter((c) => c.id === filterCard);
   const invoiceCardIdsForMonths = [...new Set([...invoiceScopedExpenses.map((e) => e.card_id).filter(Boolean), ...myCards.map((c) => c.id)])];
-  const invoiceMonthsList = invoiceMonths(invoiceScopedExpenses, invoiceCardIdsForMonths).filter((mk) => /^\d{4}-\d{2}$/.test(mk));
+  const invoiceNow = openInvoiceMonth(myCards);
+  const invoiceMonthsList = invoiceMonths(invoiceScopedExpenses, invoiceCardIdsForMonths, invoiceNow).filter((mk) => /^\d{4}-\d{2}$/.test(mk));
   const invoiceLineItems = invoiceScopedExpenses
     .filter((e) => (filterCard === "all" || e.card_id === filterCard) && isDueIn(e, selectedMonth))
     .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date));
