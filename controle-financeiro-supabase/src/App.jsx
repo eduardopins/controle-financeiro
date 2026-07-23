@@ -2625,7 +2625,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
               </div>
             </div>
 
-            <div className="rounded-3xl p-6 mb-4 relative overflow-hidden" style={{ background: HERO_GRADIENT, boxShadow: "0 14px 34px rgba(0,0,0,0.35)" }}>
+            <div className="rounded-3xl p-5 mb-4 relative overflow-hidden" style={{ background: HERO_GRADIENT, boxShadow: "0 14px 34px rgba(0,0,0,0.35)" }}>
               <div style={{ position: "absolute", right: -40, top: -40, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
               <div className="relative flex items-start justify-between gap-3">
                 <div>
@@ -2641,21 +2641,21 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
                   </span>
                 )}
               </div>
-              {displayCard && (
-                <p className="relative text-xs mt-2" style={{ color: "var(--gold-contrast)", opacity: 0.85 }}>
-                  {invoiceStatus.label === "aberta" ? "Fecha" : invoiceStatus.label === "futura" ? "Fecha" : "Fechou"} dia {displayCard.closing_day} · vence dia {displayCard.due_day}
-                  {invoiceSingleCard && invoicePaidTotal > 0 && ` · ${brl(invoicePaidTotal)} pago${invoicePaidTotal < invoiceTotal ? ` de ${brl(invoiceTotal)}` : ""}`}
-                </p>
-              )}
-              {isAdmin && (
-                <div className="relative flex justify-end mt-4">
+              <div className="relative flex items-center justify-between gap-3 mt-3 flex-wrap">
+                {displayCard ? (
+                  <p className="text-xs" style={{ color: "var(--gold-contrast)", opacity: 0.85 }}>
+                    {invoiceStatus.label === "aberta" ? "Fecha" : invoiceStatus.label === "futura" ? "Fecha" : "Fechou"} dia {displayCard.closing_day} · vence dia {displayCard.due_day}
+                    {invoiceSingleCard && invoicePaidTotal > 0 && ` · ${brl(invoicePaidTotal)} pago${invoicePaidTotal < invoiceTotal ? ` de ${brl(invoiceTotal)}` : ""}`}
+                  </p>
+                ) : <span />}
+                {isAdmin && (
                   <button onClick={() => (invoiceSingleCard ? setShowPayModal(true) : setShowPayPicker(true))}
-                    className="flex items-center justify-center gap-1.5 rounded-xl py-2.5 px-5 text-sm font-semibold"
+                    className="flex items-center justify-center gap-1.5 rounded-xl py-2 px-4 text-sm font-semibold shrink-0"
                     style={{ background: "rgba(255,255,255,0.14)", color: "var(--gold-contrast)", border: "1px solid rgba(255,255,255,0.25)" }}>
                     <DollarSign size={15} /> Pagar fatura
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             {showPayPicker && (
