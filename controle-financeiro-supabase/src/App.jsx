@@ -73,6 +73,9 @@ function diffMonths(fromKey, toKey) {
   const [ty, tm] = toKey.split("-").map(Number);
   return (ty - fy) * 12 + (tm - fm);
 }
+function diffDays(dateA, dateB) {
+  return Math.round((new Date(dateB + "T00:00:00") - new Date(dateA + "T00:00:00")) / 86400000);
+}
 const monthLabel = (key) => { const [y, m] = key.split("-").map(Number); return `${MONTHS_PT[m - 1]}/${String(y).slice(2)}`; };
 function addMonthsToKey(key, n) {
   const [y, m] = key.split("-").map(Number);
@@ -744,8 +747,9 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh, showSearch, setShowSearch }) {
+function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh, showSearch, setShowSearch, hasPin, onSetPin }) {
   const [uploading, setUploading] = useState(false);
+  const [showPinSettings, setShowPinSettings] = useState(false);
   const handleAvatarUpload = async (file) => {
     setUploading(true);
     try {
@@ -764,11 +768,13 @@ function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh, showSe
         </div>
         <div className="flex items-center gap-3">
           <button onClick={() => setShowSearch(true)}><Search size={17} color={C.muted} /></button>
+          <button onClick={() => setShowPinSettings(true)} title={hasPin ? "Trocar PIN" : "Criar PIN de acesso"}><Lock size={16} color={hasPin ? C.gold : C.muted} /></button>
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <button onClick={onLogout}><LogOut size={17} color={C.muted} /></button>
         </div>
       </div>
       {showSearch && <GlobalSearchModal profile={profile} data={data} onClose={() => setShowSearch(false)} />}
+      {showPinSettings && <PinSettingsModal hasPin={hasPin} onSetPin={onSetPin} onClose={() => setShowPinSettings(false)} />}
     </div>
   );
 }
@@ -893,13 +899,14 @@ async function extractReceiptData(file) {
 
 /* ---------------------------------- EXPENSE FORM ---------------------------------- */
 
-function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, customCategories, onAddCategory, startWithNoCard, creatorId, canRefund, onImportCSV }) {
+function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, customCategories, onAddCategory, startWithNoCard, creatorId, canRefund, onImportCSV, expenses }) {
   const [selectedUserId, setSelectedUserId] = useState(initial?.profile_id || userId);
   const [cardId, setCardId] = useState(() => {
     if (initial) return initial.card_id || "";
     return startWithNoCard ? "" : (cards[0]?.id || "");
   });
   const [category, setCategory] = useState(initial?.category || CATEGORIES[0]);
+  const [categoryTouched, setCategoryTouched] = useState(!!initial);
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [description, setDescription] = useState(initial?.description || "");
@@ -923,6 +930,29 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
 
   const totalNum = parseFloat(totalAmount) || 0;
   const pct = Math.min(100, Math.max(0, parseFloat(splitPct) || 0));
+
+  const suggestedCategory = (() => {
+    if (!expenses || initial || categoryTouched) return null;
+    const desc = description.trim().toLowerCase();
+    if (desc.length < 3) return null;
+    const matches = expenses.filter((e) => e.description && (e.description.toLowerCase().includes(desc) || desc.includes(e.description.toLowerCase())));
+    if (matches.length === 0) return null;
+    const counts = {};
+    matches.forEach((e) => { counts[e.category] = (counts[e.category] || 0) + 1; });
+    const [best] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    return best !== category ? best : null;
+  })();
+
+  const possibleDuplicate = (() => {
+    if (!expenses || initial || !cardId || !description.trim() || totalNum <= 0) return null;
+    const desc = description.trim().toLowerCase();
+    return expenses.find((e) =>
+      e.card_id === cardId &&
+      Math.abs(e.total_amount - totalNum) < 0.01 &&
+      e.description.trim().toLowerCase() === desc &&
+      Math.abs(diffDays(e.purchase_date, date)) <= 5
+    ) || null;
+  })();
   const amountA = totalNum * (pct / 100);
   const amountB = totalNum - amountA;
   const onChangePct = (v) => setSplitPct(v);
@@ -1023,14 +1053,29 @@ function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfiles, cus
 
       <p className="text-[10px] font-semibold tracking-wide uppercase mb-2" style={{ color: C.gold }}>O que foi</p>
       <Field label="Descrição"><TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: Supermercado" /></Field>
+      {suggestedCategory && (
+        <button type="button" onClick={() => { setCategory(suggestedCategory); setCategoryTouched(true); }}
+          className="flex items-center gap-1.5 text-xs mb-3 -mt-2" style={{ color: C.gold }}>
+          <PieIcon size={12} /> Sugestão: categoria "{suggestedCategory}" — toque para usar
+        </button>
+      )}
       <div className="grid grid-cols-2 gap-3 mb-3.5">
         <Field label="Categoria">
-          <Select value={category} onChange={(e) => setCategory(e.target.value)}>
+          <Select value={category} onChange={(e) => { setCategory(e.target.value); setCategoryTouched(true); }}>
             {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
           </Select>
         </Field>
         <Field label="Valor (R$)"><CurrencyInput value={totalAmount} onChange={setTotalAmount} /></Field>
       </div>
+      {possibleDuplicate && (
+        <div className="flex items-start gap-2 rounded-xl p-3 mb-3.5" style={{ background: "rgba(203,160,90,0.10)", border: `1px solid ${C.border}` }}>
+          <AlertTriangle size={14} color={C.amber} className="shrink-0 mt-0.5" />
+          <p className="text-xs" style={{ color: C.muted }}>
+            Parece que você já lançou <b style={{ color: C.text }}>"{possibleDuplicate.description}"</b> de{" "}
+            <b style={{ color: C.text }}>{brl(possibleDuplicate.total_amount)}</b> em {formatShortDate(possibleDuplicate.purchase_date)}. Confere se não é duplicado.
+          </p>
+        </div>
+      )}
 
       {canRefund && (
         <label className="flex items-center gap-2.5 text-sm mb-3.5" style={{ color: C.text }}>
@@ -1436,9 +1481,12 @@ function IncomeSection({ profile, data, refresh, scopeIds, scopeLabel }) {
       </div>
 
       {showProjection && (
-        <div className="flex items-center gap-1.5 pt-3 text-[11px]" style={{ color: C.muted }}>
-          <TrendingUp size={11} color={C.gold} />
-          no ritmo atual, deve fechar o mês com <b style={{ color: projectedSaldo < 0 ? C.rose : C.green }}>{brl(projectedSaldo)}</b> de saldo
+        <div className="flex items-start gap-2 pt-3">
+          <TrendingUp size={13} color={C.gold} className="shrink-0 mt-0.5" />
+          <p className="text-[11px] leading-relaxed" style={{ color: C.muted }}>
+            No ritmo atual, deve fechar o mês com{" "}
+            <span className="font-semibold" style={{ color: projectedSaldo < 0 ? C.rose : C.green }}>{brl(projectedSaldo)}</span> de saldo.
+          </p>
         </div>
       )}
 
@@ -2393,7 +2441,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
       {showForm && (
         <ExpenseForm cards={myCards} userId={editing?.profile_id || profile.id} initial={editing}
           onSave={handleSave} onClose={() => setShowForm(false)}
-          allProfiles={data.profiles} creatorId={profile.id} canRefund={isAdmin}
+          allProfiles={data.profiles} creatorId={profile.id} canRefund={isAdmin} expenses={data.expenses}
           customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }}
           onImportCSV={myCards.length > 0 ? () => { setShowForm(false); setShowImportCSV(true); } : null} />
       )}
@@ -2478,8 +2526,88 @@ async function shareSummaryImage(params) {
 
 /* ---------------------------------- MEMBER: OVERVIEW ---------------------------------- */
 
+function MonthlyReviewBanner({ onOpen }) {
+  const now = currentMonthKey();
+  const dismissKey = `recurring-review-dismissed-${now}`;
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem(dismissKey) === "1"; } catch { return false; }
+  });
+  const today = new Date().getDate();
+  if (dismissed || today > 5) return null;
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl p-4 mb-4" style={{ background: "rgba(203,160,90,0.10)", border: `1px solid ${C.border}` }}>
+      <div className="flex items-center gap-2.5 min-w-0">
+        <Repeat size={16} color={C.gold} className="shrink-0" />
+        <span className="text-xs" style={{ color: C.text }}>Novo mês! Já conferiu suas recorrências?</span>
+      </div>
+      <div className="flex items-center gap-3 shrink-0">
+        <button onClick={onOpen} className="text-xs font-medium" style={{ color: C.gold }}>Revisar</button>
+        <button onClick={() => { try { localStorage.setItem(dismissKey, "1"); } catch {} setDismissed(true); }}><X size={14} color={C.muted} /></button>
+      </div>
+    </div>
+  );
+}
+
+function RecurringReviewModal({ profile, data, isAdmin, refresh, onClose }) {
+  const scopeIds = isAdmin ? data.profiles.map((p) => p.id) : [profile.id];
+  const personName = (id) => firstName(data.profiles.find((p) => p.id === id)?.name) || "-";
+  const cardName = (id) => (id ? (data.cards.find((c) => c.id === id)?.name || "-") : "Dinheiro/Pix");
+  const recurringExpenses = data.expenses.filter((e) => e.is_recurring && scopeIds.includes(e.profile_id));
+  const recurringIncomes = (data.incomes || []).filter((i) => i.is_recurring && scopeIds.includes(i.profile_id));
+
+  const handleDeleteExpense = async (exp) => {
+    if (!window.confirm(`Cancelar a recorrência "${exp.description}"? Isso remove o lançamento.`)) return;
+    await deleteExpense(exp);
+    await logActivity(profile.id, "excluiu", `Cancelou a recorrência "${exp.description}"`);
+    await refresh();
+  };
+  const handleDeleteIncome = async (inc) => {
+    if (!window.confirm(`Cancelar a receita recorrente "${inc.description}"?`)) return;
+    await deleteIncome(inc);
+    await refresh();
+  };
+
+  return (
+    <Modal title="Revisar recorrências" onClose={onClose}>
+      <p className="text-xs mb-4" style={{ color: C.muted }}>Confira se essas assinaturas e recorrências ainda fazem sentido esse mês.</p>
+      {recurringExpenses.length === 0 && recurringIncomes.length === 0 ? (
+        <EmptyState icon={<Repeat size={28} />} text="Nenhuma recorrência cadastrada." />
+      ) : (
+        <div className="space-y-1 mb-4">
+          {recurringExpenses.map((e) => (
+            <div key={e.id} className="flex items-center justify-between text-sm py-2.5" style={{ borderBottom: `1px solid ${C.border}` }}>
+              <div className="min-w-0">
+                <div className="truncate" style={{ color: C.text }}>{e.description}</div>
+                <div className="text-[11px]" style={{ color: C.muted }}>{cardName(e.card_id)}{isAdmin ? ` · ${personName(e.profile_id)}` : ""}</div>
+              </div>
+              <div className="flex items-center gap-2.5 shrink-0">
+                <Amount value={monthlyValue(e)} size="text-xs" tone="rose" />
+                <button onClick={() => handleDeleteExpense(e)}><Trash2 size={14} color={C.rose} /></button>
+              </div>
+            </div>
+          ))}
+          {recurringIncomes.map((i) => (
+            <div key={i.id} className="flex items-center justify-between text-sm py-2.5" style={{ borderBottom: `1px solid ${C.border}` }}>
+              <div className="min-w-0">
+                <div className="truncate" style={{ color: C.text }}>{i.description}</div>
+                <div className="text-[11px]" style={{ color: C.muted }}>receita{isAdmin ? ` · ${personName(i.profile_id)}` : ""}</div>
+              </div>
+              <div className="flex items-center gap-2.5 shrink-0">
+                <Amount value={i.amount} size="text-xs" tone="green" />
+                <button onClick={() => handleDeleteIncome(i)}><Trash2 size={14} color={C.rose} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <Btn full onClick={onClose}>Tudo certo, continuar</Btn>
+    </Modal>
+  );
+}
+
 function MemberOverview({ profile, data, refresh }) {
   const now = currentMonthKey();
+  const [showRecurringReview, setShowRecurringReview] = useState(false);
   const myCards = accessibleCards(data, profile.id);
   const myExpenses = data.expenses.filter((e) => e.profile_id === profile.id);
   const myMonthTotal = myExpenses.filter((e) => isDueIn(e, now)).reduce((s, e) => s + monthlyValue(e), 0);
@@ -2501,6 +2629,7 @@ function MemberOverview({ profile, data, refresh }) {
           <Share2 size={15} color={C.gold} />
         </button>
       </div>
+      <MonthlyReviewBanner onOpen={() => setShowRecurringReview(true)} />
       <HeroPanel label="Total do mês" value={myMonthTotal} />
       <IncomeSection profile={profile} data={data} refresh={refresh} />
       <UpcomingBillsPanel cards={myCards} expenses={data.expenses} />
@@ -2515,6 +2644,7 @@ function MemberOverview({ profile, data, refresh }) {
       ) : (
         <Panel><EmptyState icon={<CreditCard size={28} />} text="Você ainda não tem acesso a nenhum cartão." /></Panel>
       )}
+      {showRecurringReview && <RecurringReviewModal profile={profile} data={data} isAdmin={false} refresh={refresh} onClose={() => setShowRecurringReview(false)} />}
     </div>
   );
 }
@@ -2525,6 +2655,7 @@ function AdminOverview({ profile, data, refresh }) {
   const now = currentMonthKey();
   const prevMonth = addMonthsToKey(now, -1);
   const [scopeIds, setScopeIds] = useState([]);
+  const [showRecurringReview, setShowRecurringReview] = useState(false);
   const scopeActive = scopeIds.length > 0;
   const scopedExpenses = data.expenses.filter((e) => isDueIn(e, now) && (!scopeActive || scopeIds.includes(e.profile_id)));
   const totalMonth = scopedExpenses.reduce((s, e) => s + monthlyValue(e), 0);
@@ -2562,18 +2693,24 @@ function AdminOverview({ profile, data, refresh }) {
         </button>
       </div>
       <div className="space-y-4">
+        <MonthlyReviewBanner onOpen={() => setShowRecurringReview(true)} />
         <HeroPanel label={scopeActive ? buildHeading(scopeIds) : "Total do mês"} value={totalMonth} />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {byPerson.map((p) => {
             const active = scopeIds.includes(p.id);
             const delta = p.prevTotal > 0 ? ((p.total - p.prevTotal) / p.prevTotal) * 100 : null;
+            const familyTotal = byPerson.reduce((s, x) => s + x.total, 0);
+            const pctShare = familyTotal > 0 ? (p.total / familyTotal) * 100 : 0;
             return (
               <button key={p.id} onClick={() => toggleScope(p.id)} className="text-left rounded-2xl p-5 transition-all" style={{ background: C.surface, border: `1px solid ${active ? C.gold : C.border}`, boxShadow: C.shadow }}>
                 <div className="flex items-center gap-2.5 mb-2.5">
                   <Avatar profile={p} size={28} />
                   <span className="text-[11px]" style={{ color: active ? C.gold : C.muted }}>{firstName(p.name)}</span>
                 </div>
-                <Amount value={p.total} size="text-lg" />
+                <div className="flex items-baseline gap-1.5">
+                  <Amount value={p.total} size="text-lg" />
+                  {familyTotal > 0 && <span className="text-[11px]" style={{ color: C.muted }}>({pctShare.toFixed(0)}%)</span>}
+                </div>
                 {delta != null && (
                   <div className="flex items-center gap-1 text-[11px] mt-1.5" style={{ color: delta > 0 ? C.rose : C.green }}>
                     {delta > 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
@@ -2595,6 +2732,7 @@ function AdminOverview({ profile, data, refresh }) {
           {data.cards.length === 0 && <Panel><EmptyState icon={<CreditCard size={28} />} text="Nenhum cartão cadastrado ainda." /></Panel>}
         </div>
       </div>
+      {showRecurringReview && <RecurringReviewModal profile={profile} data={data} isAdmin refresh={refresh} onClose={() => setShowRecurringReview(false)} />}
     </div>
   );
 }
@@ -2776,6 +2914,7 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
   const [selectedIds, setSelectedIds] = useState([]);
   const [compareMonth, setCompareMonth] = useState(prevMonth);
   const [summaryYear, setSummaryYear] = useState(parseInt(now.split("-")[0]));
+  const [compareMonths, setCompareMonths] = useState([]);
 
   const scopeProfiles = isAdmin
     ? (selectedIds.length === 0 ? data.profiles : data.profiles.filter((p) => selectedIds.includes(p.id)))
@@ -2789,6 +2928,22 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
   const compareOptions = Array.from({ length: 12 }, (_, i) => addMonthsToKey(now, -(i + 1)));
 
   const months = last6Months();
+  const last12Months = Array.from({ length: 12 }, (_, i) => addMonthsToKey(now, -i));
+  const toggleCompareMonth = (mk) => setCompareMonths((prev) => {
+    if (prev.includes(mk)) return prev.filter((x) => x !== mk);
+    if (prev.length >= 3) return prev;
+    return [...prev, mk].sort();
+  });
+  const compareCategoryRows = (() => {
+    if (compareMonths.length < 2) return [];
+    const scoped = data.expenses.filter((e) => scopeIds.includes(e.profile_id));
+    const cats = new Set();
+    compareMonths.forEach((mk) => allCategoryNames(scoped.filter((e) => isDueIn(e, mk))).forEach((c) => cats.add(c)));
+    return Array.from(cats).map((cat) => ({
+      cat,
+      values: compareMonths.map((mk) => scoped.filter((e) => e.category === cat && isDueIn(e, mk)).reduce((s, e) => s + monthlyValue(e), 0)),
+    })).filter((r) => r.values.some((v) => v > 0));
+  })();
   const evolution = months.map((mk) => {
     const row = { month: monthLabel(mk) };
     scopeProfiles.forEach((u) => { row[firstName(u.name)] = data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, mk)).reduce((s, e) => s + monthlyValue(e), 0); });
@@ -3020,6 +3175,49 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
         )}
       </Panel>
 
+      <Panel>
+        <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Comparar meses específicos</h4>
+        <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+          {last12Months.map((mk) => {
+            const active = compareMonths.includes(mk);
+            return (
+              <button key={mk} onClick={() => toggleCompareMonth(mk)} className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-all"
+                style={{ background: active ? C.gold : C.bgSoft, color: active ? "var(--gold-contrast)" : C.muted, border: `1px solid ${active ? C.gold : C.border}` }}>
+                {monthLabel(mk)}
+              </button>
+            );
+          })}
+        </div>
+        {compareMonths.length < 2 ? (
+          <p className="text-xs" style={{ color: C.muted }}>Escolha 2 ou 3 meses acima para comparar categoria por categoria.</p>
+        ) : compareCategoryRows.length === 0 ? (
+          <EmptyState icon={<PieIcon size={28} />} text="Sem gastos nos meses escolhidos." />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <th className="text-left py-2 text-[11px] font-medium uppercase" style={{ color: C.muted }}>Categoria</th>
+                  {compareMonths.map((mk) => (
+                    <th key={mk} className="text-right py-2 text-[11px] font-medium capitalize" style={{ color: C.muted }}>{monthLabel(mk)}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {compareCategoryRows.map((r) => (
+                  <tr key={r.cat} style={{ borderBottom: `1px solid ${C.border}` }}>
+                    <td className="py-2" style={{ color: C.text }}>{r.cat}</td>
+                    {r.values.map((v, i) => (
+                      <td key={i} className="text-right py-2"><Amount value={v} size="text-xs" /></td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
       {hasInvestments && (
         <Panel>
           <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Evolução do patrimônio investido</h4>
@@ -3128,8 +3326,9 @@ function usePersistentTab(key, defaultValue) {
 
 /* ---------------------------------- DASHBOARDS ---------------------------------- */
 
-function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, data, refresh, showSearch, setShowSearch }) {
+function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, data, refresh, showSearch, setShowSearch, hasPin, onSetPin }) {
   const [uploading, setUploading] = useState(false);
+  const [showPinSettings, setShowPinSettings] = useState(false);
   const handleAvatarUpload = async (file) => {
     setUploading(true);
     try {
@@ -3171,10 +3370,14 @@ function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, d
 
       <div className="flex items-center gap-2 mb-3 px-1">
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+        <button onClick={() => setShowPinSettings(true)} className="w-8 h-8 rounded-full flex items-center justify-center transition-all" style={{ border: `1px solid ${C.border}` }} title={hasPin ? "Trocar PIN" : "Criar PIN de acesso"}>
+          <Lock size={14} color={hasPin ? C.gold : C.muted} />
+        </button>
         <button onClick={onLogout} className="w-8 h-8 rounded-full flex items-center justify-center transition-all ml-auto" style={{ border: `1px solid ${C.border}` }}>
           <LogOut size={14} color={C.muted} />
         </button>
       </div>
+      {showPinSettings && <PinSettingsModal hasPin={hasPin} onSetPin={onSetPin} onClose={() => setShowPinSettings(false)} />}
       <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-3" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
         <Avatar profile={profile} size={32} editable onUpload={handleAvatarUpload} uploading={uploading} />
         <div className="min-w-0">
@@ -3206,7 +3409,7 @@ function useKeyboardShortcuts({ onNewExpense, onNewIncome, onSearch }) {
   }, [onNewExpense, onNewIncome, onSearch]);
 }
 
-function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
+function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme, hasPin, onSetPin }) {
   const [tab, setTab] = usePersistentTab("tab-member", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
@@ -3234,15 +3437,15 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
   return (
     <div className="lg:flex lg:items-start">
-      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} />
+      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} hasPin={hasPin} onSetPin={onSetPin} />
       <div className="lg:flex-1 lg:min-w-0">
-        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} /></div>
+        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} hasPin={hasPin} onSetPin={onSetPin} /></div>
         {tab === "overview" && <MemberOverview profile={profile} data={data} refresh={refresh} />}
         {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
         {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
         {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
         <FloatingAddButton onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
-        {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id}
+        {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id} expenses={data.expenses}
           customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
         {showQuickIncome && <IncomeForm profileId={profile.id} onSave={handleQuickIncomeSave} onClose={() => setShowQuickIncome(false)} />}
         <div className="lg:hidden"><BottomNav tabs={tabs} tab={tab} setTab={setTab} /></div>
@@ -3251,7 +3454,7 @@ function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   );
 }
 
-function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
+function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme, hasPin, onSetPin }) {
   const [tab, setTab] = usePersistentTab("tab-admin", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
@@ -3278,15 +3481,15 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
   const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
   return (
     <div className="lg:flex lg:items-start">
-      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} />
+      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} hasPin={hasPin} onSetPin={onSetPin} />
       <div className="lg:flex-1 lg:min-w-0">
-        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} /></div>
+        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} showSearch={showSearch} setShowSearch={setShowSearch} hasPin={hasPin} onSetPin={onSetPin} /></div>
         {tab === "overview" && <AdminOverview profile={profile} data={data} refresh={refresh} />}
         {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
         {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
         {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
         <FloatingAddButton onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
-        {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id} canRefund
+        {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id} canRefund expenses={data.expenses}
           customCategories={data.customCategories} onAddCategory={async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }} />}
         {showQuickIncome && <IncomeForm profileId={profile.id} onSave={handleQuickIncomeSave} onClose={() => setShowQuickIncome(false)} />}
         <div className="lg:hidden"><BottomNav tabs={tabs} tab={tab} setTab={setTab} /></div>
@@ -3297,10 +3500,121 @@ function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
 
 /* ---------------------------------- ROOT ---------------------------------- */
 
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+  return hash.toString(36);
+}
+
+function usePinLock() {
+  const [pinHash, setPinHash] = useState(() => { try { return localStorage.getItem("app-pin") || ""; } catch { return ""; } });
+  const [unlocked, setUnlocked] = useState(() => { try { return sessionStorage.getItem("pin-unlocked") === "1"; } catch { return false; } });
+  const locked = !!pinHash && !unlocked;
+  const unlock = (pin) => {
+    if (simpleHash(pin) === pinHash) {
+      setUnlocked(true);
+      try { sessionStorage.setItem("pin-unlocked", "1"); } catch {}
+      return true;
+    }
+    return false;
+  };
+  const setPin = (pin) => {
+    const h = pin ? simpleHash(pin) : "";
+    setPinHash(h);
+    try { if (h) localStorage.setItem("app-pin", h); else localStorage.removeItem("app-pin"); } catch {}
+  };
+  return { locked, unlock, setPin, hasPin: !!pinHash };
+}
+
+function PinLockScreen({ onUnlock }) {
+  const [pin, setPin] = useState("");
+  const [shake, setShake] = useState(false);
+  const submit = (value) => {
+    if (!onUnlock(value)) {
+      setShake(true);
+      setTimeout(() => setShake(false), 400);
+      setPin("");
+    }
+  };
+  const press = (d) => {
+    const next = (pin + d).slice(0, 4);
+    setPin(next);
+    if (next.length === 4) submit(next);
+  };
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-6" style={{ background: C.bg }}>
+      <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldSoft})`, color: "var(--gold-contrast)" }}>
+        <Lock size={22} />
+      </div>
+      <p className="text-sm" style={{ color: C.muted }}>Digite seu PIN</p>
+      <div className={`flex gap-3 ${shake ? "animate-pulse" : ""}`}>
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="w-3.5 h-3.5 rounded-full" style={{ background: i < pin.length ? C.gold : "transparent", border: `1.5px solid ${shake ? C.rose : C.border}` }} />
+        ))}
+      </div>
+      <div className="grid grid-cols-3 gap-4">
+        {["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"].map((d, i) => (
+          d === "" ? <div key={i} /> : (
+            <button key={i} onClick={() => (d === "⌫" ? setPin((p) => p.slice(0, -1)) : press(d))}
+              className="w-16 h-16 rounded-full text-lg font-medium flex items-center justify-center transition-all active:scale-95"
+              style={{ background: C.surface, color: C.text, border: `1px solid ${C.border}` }}>
+              {d}
+            </button>
+          )
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PinSettingsModal({ hasPin, onSetPin, onClose }) {
+  const [step, setStep] = useState("enter");
+  const [first, setFirst] = useState("");
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
+  const press = (d) => {
+    const next = (pin + d).slice(0, 4);
+    setPin(next);
+    if (next.length === 4) {
+      if (step === "enter") { setFirst(next); setPin(""); setStep("confirm"); }
+      else if (next === first) { onSetPin(first); onClose(); }
+      else { setErr("Os PINs não coincidem, tenta de novo."); setPin(""); setFirst(""); setStep("enter"); }
+    }
+  };
+  return (
+    <Modal title={hasPin ? "Trocar PIN" : "Criar PIN de acesso rápido"} onClose={onClose}>
+      <p className="text-xs mb-4" style={{ color: C.muted }}>
+        {step === "enter" ? "Digite um PIN de 4 dígitos." : "Digite de novo pra confirmar."}
+      </p>
+      {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
+      <div className="flex gap-3 justify-center mb-5">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="w-3.5 h-3.5 rounded-full" style={{ background: i < pin.length ? C.gold : "transparent", border: `1.5px solid ${C.border}` }} />
+        ))}
+      </div>
+      <div className="grid grid-cols-3 gap-3 justify-items-center mb-4">
+        {["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"].map((d, i) => (
+          d === "" ? <div key={i} /> : (
+            <button key={i} onClick={() => (d === "⌫" ? setPin((p) => p.slice(0, -1)) : press(d))}
+              className="w-14 h-14 rounded-full text-base font-medium flex items-center justify-center transition-all active:scale-95"
+              style={{ background: C.bgSoft, color: C.text, border: `1px solid ${C.border}` }}>
+              {d}
+            </button>
+          )
+        ))}
+      </div>
+      {hasPin && (
+        <button onClick={() => { onSetPin(""); onClose(); }} className="w-full text-xs text-center" style={{ color: C.rose }}>Remover PIN</button>
+      )}
+    </Modal>
+  );
+}
+
 export default function App() {
   useFonts();
   useThemeStyles();
   const [theme, toggleTheme] = useTheme();
+  const { locked, unlock, setPin, hasPin } = usePinLock();
   const [authUser, setAuthUser] = useState(undefined);
   const [profile, setProfile] = useState(null);
   const [data, setData] = useState(null);
@@ -3343,6 +3657,7 @@ export default function App() {
   if (authUser === undefined) return <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg, color: C.muted }}>Carregando…</div>;
   if (!authUser) return <Login onLogin={(u) => { try { localStorage.setItem("tab-member", "overview"); localStorage.setItem("tab-admin", "overview"); } catch {} setAuthUser(u); }} theme={theme} onToggleTheme={toggleTheme} />;
   if (!profile || !data) return <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg, color: C.muted }}>{error || "Carregando…"}</div>;
+  if (locked) return <PinLockScreen onUnlock={unlock} />;
 
   const handleLogout = async () => { await supabase.auth.signOut(); };
 
@@ -3350,9 +3665,9 @@ export default function App() {
     <div className="min-h-screen" style={{ background: C.bg }}>
       {error && <div className="text-center text-xs py-1.5" style={{ background: "rgba(221,124,134,0.15)", color: C.rose }}>{error}</div>}
       {profile.role === "admin" ? (
-        <AdminApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />
+        <AdminApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} hasPin={hasPin} onSetPin={setPin} />
       ) : (
-        <MemberApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />
+        <MemberApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} hasPin={hasPin} onSetPin={setPin} />
       )}
     </div>
   );
