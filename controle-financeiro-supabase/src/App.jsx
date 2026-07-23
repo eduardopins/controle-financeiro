@@ -2374,10 +2374,7 @@ function ChoosePayCardModal({ cards, monthKey, expenses, payments, onChoose, onC
 
 function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [filterPerson, setFilterPerson] = useState("all");
-  const [filterCard, setFilterCard] = useState(() => {
-    const cards = isAdmin ? data.cards : accessibleCards(data, profile.id);
-    return cards.length === 1 ? cards[0].id : "all";
-  });
+  const [filterCard, setFilterCard] = useState("all");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [query, setQuery] = useState("");
