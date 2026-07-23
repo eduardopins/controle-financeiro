@@ -3305,8 +3305,11 @@ function ReportsScreen({ profile, data, refresh, isAdmin }) {
             return (
               <button key={p.id} onClick={() => setSelectedIds((prev) => prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id])}
                 className="text-left rounded-2xl p-4 transition-all" style={{ background: C.surface, border: `1px solid ${active ? C.gold : C.border}`, boxShadow: C.shadow }}>
-                <span className="text-[11px]" style={{ color: active ? C.gold : C.muted }}>{firstName(p.name)}</span>
-                <div className="mt-1"><Amount value={personTotal} size="text-lg" /></div>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <Avatar profile={p} size={24} />
+                  <span className="text-[11px]" style={{ color: active ? C.gold : C.muted }}>{firstName(p.name)}</span>
+                </div>
+                <Amount value={personTotal} size="text-lg" />
               </button>
             );
           })}
