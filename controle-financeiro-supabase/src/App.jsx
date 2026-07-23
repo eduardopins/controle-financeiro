@@ -120,14 +120,22 @@ function isDueIn(exp, monthKey) {
 function monthlyValue(exp, monthKey, overrides) {
   if (monthKey && overrides) {
     const o = overrides.get(`${exp.id}|${monthKey}`);
-    if (o != null) return o;
+    if (o) {
+      if (o.removed) return 0;
+      if (o.amount != null) return o.amount;
+    }
   }
   return exp.is_recurring ? exp.total_amount : exp.total_amount / exp.installments;
 }
 function overridesMap(list) {
   const m = new Map();
-  (list || []).forEach((o) => m.set(`${o.expense_id}|${o.month_key}`, o.amount));
+  (list || []).forEach((o) => m.set(`${o.expense_id}|${o.month_key}`, o));
   return m;
+}
+function isRemovedForMonth(exp, monthKey, overrides) {
+  if (!monthKey || !overrides) return false;
+  const o = overrides.get(`${exp.id}|${monthKey}`);
+  return !!(o && o.removed);
 }
 function outstanding(exp, nowKey = currentMonthKey()) {
   if (exp.is_recurring) return 0;
@@ -646,7 +654,12 @@ async function deleteInvoicePayment(payment) {
 }
 async function saveExpenseOverride(expenseId, monthKey, amount) {
   const { error } = await supabase.from("expense_overrides")
-    .upsert({ expense_id: expenseId, month_key: monthKey, amount }, { onConflict: "expense_id,month_key" });
+    .upsert({ expense_id: expenseId, month_key: monthKey, amount, removed: false }, { onConflict: "expense_id,month_key" });
+  if (error) throw error;
+}
+async function removeExpenseForMonth(expenseId, monthKey) {
+  const { error } = await supabase.from("expense_overrides")
+    .upsert({ expense_id: expenseId, month_key: monthKey, amount: null, removed: true }, { onConflict: "expense_id,month_key" });
   if (error) throw error;
 }
 async function deleteExpenseOverride(expenseId, monthKey) {
@@ -1515,7 +1528,7 @@ function ExpenseRow({ exp, cardName, personName, creatorName, contextMonth, onEd
       <div className="w-2 h-2 rounded-full shrink-0" style={{ background: getCategoryColor(exp.category) }} />
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium truncate flex items-center gap-1.5" style={{ color: C.text }}>
-          {exp.description}{exp.is_recurring && <Repeat size={11} color={C.muted} />}
+          {exp.description}{exp.is_recurring && <Repeat size={11} color={C.muted} title="Conta recorrente" style={{ marginLeft: 1 }} />}
           {exp.is_refund && <TrendingUp size={11} color={C.green} />}
           {exp.receipt_url && <a href={exp.receipt_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}><Paperclip size={11} color={C.muted} /></a>}
         </div>
@@ -2533,7 +2546,23 @@ function ChoosePayCardModal({ cards, monthKey, expenses, payments, onChoose, onC
   );
 }
 
-function MonthOverrideModal({ exp, monthKey, currentAmount, hasOverride, onSave, onRemove, onClose }) {
+function ScopeChoiceModal({ title, monthLabelText, onAll, onThisMonth, onClose }) {
+  return (
+    <Modal title={title} onClose={onClose}>
+      <p className="text-xs mb-4" style={{ color: C.muted }}>Essa conta se repete em vários meses. O que você quer fazer?</p>
+      <div className="space-y-2">
+        <button onClick={onThisMonth} className="w-full text-left px-4 py-3 rounded-xl text-sm transition-all" style={{ background: C.bgSoft, border: `1px solid ${C.border}`, color: C.text }}>
+          Só em {monthLabelText}
+        </button>
+        <button onClick={onAll} className="w-full text-left px-4 py-3 rounded-xl text-sm transition-all" style={{ background: C.bgSoft, border: `1px solid ${C.border}`, color: C.text }}>
+          Em todos os meses
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function MonthOverrideModal({ exp, monthKey, currentAmount, hasOverride, onSave, onRemove, onRemoveMonth, onClose }) {
   const [amount, setAmount] = useState(String(currentAmount.toFixed(2)));
   const [saving, setSaving] = useState(false);
 
@@ -2547,6 +2576,11 @@ function MonthOverrideModal({ exp, monthKey, currentAmount, hasOverride, onSave,
     setSaving(true);
     try { await onRemove(); onClose(); } finally { setSaving(false); }
   };
+  const removeMonth = async () => {
+    if (!window.confirm(`Não lançar "${exp.description}" em ${monthLabel(monthKey)}? Os outros meses continuam normais.`)) return;
+    setSaving(true);
+    try { await onRemoveMonth(); onClose(); } finally { setSaving(false); }
+  };
 
   return (
     <Modal title="Ajustar valor deste mês" onClose={onClose}>
@@ -2556,8 +2590,9 @@ function MonthOverrideModal({ exp, monthKey, currentAmount, hasOverride, onSave,
       <Field label={`Valor só em ${monthLabel(monthKey)} (R$)`}><CurrencyInput value={amount} onChange={setAmount} /></Field>
       <Btn full onClick={submit} disabled={saving}>{saving ? "Salvando..." : "Salvar valor deste mês"}</Btn>
       {hasOverride && (
-        <button onClick={remove} disabled={saving} className="w-full text-xs text-center mt-3" style={{ color: C.rose }}>Remover ajuste (voltar ao valor padrão)</button>
+        <button onClick={remove} disabled={saving} className="w-full text-xs text-center mt-3" style={{ color: C.muted }}>Remover ajuste (voltar ao valor padrão)</button>
       )}
+      <button onClick={removeMonth} disabled={saving} className="w-full text-xs text-center mt-3" style={{ color: C.rose }}>Não lançar esse gasto neste mês</button>
     </Modal>
   );
 }
@@ -2642,6 +2677,22 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
     await deleteExpenseOverride(overrideTarget.id, monthKey);
     await refresh();
   };
+  const handleRemoveMonth = async (monthKey) => {
+    await removeExpenseForMonth(overrideTarget.id, monthKey);
+    await logActivity(profile.id, "ajustou", `Removeu "${overrideTarget.description}" da fatura de ${monthLabel(monthKey)} (fica normal nos outros meses)`);
+    await refresh();
+  };
+  const isMultiMonth = (exp) => exp.is_recurring || exp.installments > 1;
+  const [editScopeTarget, setEditScopeTarget] = useState(null);
+  const [deleteScopeTarget, setDeleteScopeTarget] = useState(null);
+  const handleEditClick = (exp) => {
+    if (isMultiMonth(exp)) setEditScopeTarget(exp);
+    else { setEditing(exp); setShowForm(true); }
+  };
+  const handleDeleteClick = (exp) => {
+    if (isMultiMonth(exp)) setDeleteScopeTarget(exp);
+    else handleDelete(exp);
+  };
   const handleDeleteGroup = async (parts) => {
     if (!window.confirm("Excluir este gasto dividido? As duas partes serão removidas.")) return;
     for (const p of parts) await deleteExpense(p);
@@ -2674,7 +2725,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const invoiceNow = openInvoiceMonth(myCards);
   const invoiceMonthsList = invoiceMonths(invoiceScopedExpenses, invoiceCardIdsForMonths, invoiceNow).filter((mk) => /^\d{4}-\d{2}$/.test(mk));
   const invoiceLineItems = invoiceScopedExpenses
-    .filter((e) => (filterCard === "all" || e.card_id === filterCard) && isDueIn(e, selectedMonth))
+    .filter((e) => (filterCard === "all" || e.card_id === filterCard) && isDueIn(e, selectedMonth) && !isRemovedForMonth(e, selectedMonth, expenseOverridesMap))
     .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date));
   const invoiceTotal = invoiceLineItems.reduce((s, e) => s + monthlyValue(e, selectedMonth, expenseOverridesMap), 0);
   const invoiceSingleCard = filterCard !== "all" ? invoiceCards.find((c) => c.id === filterCard) : null;
@@ -2883,7 +2934,25 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
                 hasOverride={expenseOverridesMap.has(`${overrideTarget.id}|${selectedMonth}`)}
                 onSave={(amount) => handleSaveOverride(selectedMonth, amount)}
                 onRemove={() => handleRemoveOverride(selectedMonth)}
+                onRemoveMonth={() => handleRemoveMonth(selectedMonth)}
                 onClose={() => setOverrideTarget(null)} />
+            )}
+            {editScopeTarget && (
+              <ScopeChoiceModal title="Editar gasto" monthLabelText={monthLabel(selectedMonth)}
+                onThisMonth={() => { setOverrideTarget(editScopeTarget); setEditScopeTarget(null); }}
+                onAll={() => { setEditing(editScopeTarget); setShowForm(true); setEditScopeTarget(null); }}
+                onClose={() => setEditScopeTarget(null)} />
+            )}
+            {deleteScopeTarget && (
+              <ScopeChoiceModal title="Excluir gasto" monthLabelText={monthLabel(selectedMonth)}
+                onThisMonth={async () => {
+                  await removeExpenseForMonth(deleteScopeTarget.id, selectedMonth);
+                  await logActivity(profile.id, "ajustou", `Removeu "${deleteScopeTarget.description}" da fatura de ${monthLabel(selectedMonth)} (fica normal nos outros meses)`);
+                  await refresh();
+                  setDeleteScopeTarget(null);
+                }}
+                onAll={() => { handleDelete(deleteScopeTarget); setDeleteScopeTarget(null); }}
+                onClose={() => setDeleteScopeTarget(null)} />
             )}
             {invoiceLineItems.length > 0 && invoiceSingleCard && (
               <>
@@ -2919,7 +2988,7 @@ function HistoryScreen({ profile, data, refresh, isAdmin }) {
                       onEdit={(e) => { setEditing(e); setShowForm(true); }} onDeleteGroup={handleDeleteGroup} onToggleReconciled={handleToggleReconciledGroup} />
                   ) : (
                     <ExpenseRow key={row.exp.id} exp={row.exp} cardName={cardName(row.exp.card_id)} personName={personName(row.exp.profile_id)} creatorName={row.exp.created_by ? personName(row.exp.created_by) : ""} resolveProfileName={personName} showPerson={isAdmin} contextMonth={selectedMonth} overrides={expenseOverridesMap} reconciliations={reconciliationsMap}
-                      onEdit={(e) => { setEditing(e); setShowForm(true); }} onDelete={handleDelete} onToggleReconciled={handleToggleReconciled} onEditMonthOverride={(e) => setOverrideTarget(e)} />
+                      onEdit={handleEditClick} onDelete={handleDeleteClick} onToggleReconciled={handleToggleReconciled} onEditMonthOverride={(e) => setOverrideTarget(e)} />
                   )
                 )
               )}
