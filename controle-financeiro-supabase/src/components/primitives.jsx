@@ -345,7 +345,7 @@ export function Chip({ tone = "muted", icon, children }) {
   const colors = { rose: C.rose, amber: C.amber, muted: C.muted, green: C.green, gold: C.gold };
   const color = colors[tone];
   return (
-    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: `${color}1F`, color }}>
+    <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color, border: `1px solid ${color}66` }}>
       {icon}{children}
     </span>
   );

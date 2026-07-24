@@ -430,7 +430,7 @@ export function CardWidget({ card, used, nextAmount }) {
   const gradient = `linear-gradient(135deg, ${base}, ${shade(base, -0.4)})`;
 
   return (
-    <div className="rounded-2xl overflow-hidden" style={{ boxShadow: C.shadow }}>
+    <div className="rounded-xl overflow-hidden" style={{ boxShadow: C.shadow }}>
       {/* face do cartão */}
       <div className="relative p-4" style={{ background: gradient, minHeight: 118 }}>
         <div style={{ position: "absolute", right: -30, top: -30, width: 110, height: 110, borderRadius: "50%", background: "rgba(255,255,255,0.10)" }} />
@@ -660,7 +660,7 @@ export function IncomeSection({ profile, data, refresh, scopeIds, scopeLabel }) 
     }}>
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: saldo < 0 ? "rgba(168,80,79,0.16)" : "rgba(47,122,92,0.16)" }}>
+          <div className="w-11 h-11 rounded-lg flex items-center justify-center shrink-0" style={{ background: saldo < 0 ? "rgba(168,80,79,0.16)" : "rgba(47,122,92,0.16)" }}>
             {saldo < 0 ? <TrendingDown size={19} color={C.rose} /> : <TrendingUp size={19} color={C.green} />}
           </div>
           <div>
@@ -843,7 +843,7 @@ export function InvestmentCard({ inv, balance, transactions, profiles, viewerPro
     <Panel>
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "rgba(84,176,138,0.15)" }}>
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(84,176,138,0.15)" }}>
             <PiggyBank size={18} color={C.green} />
           </div>
           <div>
@@ -1284,7 +1284,7 @@ export function MonthlyReviewBanner({ onOpen }) {
   const today = new Date().getDate();
   if (dismissed || today > 5) return null;
   return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl p-4 mb-4" style={{ background: "rgba(203,160,90,0.10)", border: `1px solid ${C.border}` }}>
+    <div className="flex items-center justify-between gap-3 rounded-xl p-4 mb-4" style={{ background: "rgba(203,160,90,0.10)", border: `1px solid ${C.border}` }}>
       <div className="flex items-center gap-2.5 min-w-0">
         <Repeat size={16} color={C.gold} className="shrink-0" />
         <span className="text-xs" style={{ color: C.text }}>Novo mês! Já conferiu suas recorrências?</span>
@@ -1369,7 +1369,7 @@ export function RecentReconciliationBanner({ expenses, reconciliations, profileI
     return `${name} conferiu ${count} gasto${count > 1 ? "s" : ""} seu${count > 1 ? "s" : ""}`;
   });
   return (
-    <div className="flex items-center gap-2.5 rounded-2xl p-4 mb-4" style={{ background: "rgba(95,168,140,0.10)", border: `1px solid ${C.border}` }}>
+    <div className="flex items-center gap-2.5 rounded-xl p-4 mb-4" style={{ background: "rgba(95,168,140,0.10)", border: `1px solid ${C.border}` }}>
       <CheckSquare size={16} color={C.green} className="shrink-0" />
       <span className="text-xs" style={{ color: C.text }}>{parts.join(" · ")} recentemente.</span>
     </div>

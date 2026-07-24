@@ -743,7 +743,7 @@ export function AdminOverview({ profile, data, refresh, onManageCards }) {
             const familyTotal = byPerson.reduce((s, x) => s + x.total, 0);
             const pctShare = familyTotal > 0 ? (p.total / familyTotal) * 100 : 0;
             return (
-              <button key={p.id} onClick={() => toggleScope(p.id)} className="text-left rounded-2xl p-5 transition-all" style={{ background: C.surface, border: `1px solid ${active ? C.gold : C.border}`, boxShadow: C.shadow }}>
+              <button key={p.id} onClick={() => toggleScope(p.id)} className="text-left rounded-xl p-5 transition-all" style={{ background: C.surface, border: `1px solid ${active ? C.gold : C.border}`, boxShadow: C.shadow }}>
                 <div className="flex items-center gap-2.5 mb-2.5">
                   <Avatar profile={p} size={28} />
                   <span className="text-[11px]" style={{ color: active ? C.gold : C.muted }}>{firstName(p.name)}</span>
