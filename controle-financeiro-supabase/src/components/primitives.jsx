@@ -52,7 +52,7 @@ export function LoadingSkeleton() {
 export function HeroPanel({ label, value, sub }) {
   const animated = useCountUp(value);
   return (
-    <div className="relative p-6 mb-4" style={{ background: C.goldDeep, borderRadius: 6, boxShadow: C.shadow }}>
+    <div className="relative p-6 mb-4" style={{ background: `radial-gradient(130% 150% at 12% -10%, rgba(255,255,255,0.07), transparent 55%), ${C.goldDeep}`, borderRadius: 6, boxShadow: C.shadow }}>
       {/* dobra de canto, como a página de um livro-caixa */}
       <div style={{ position: "absolute", top: 0, right: 0, width: 22, height: 22, background: `linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.28) 50%)`, borderRadius: "0 6px 0 0" }} />
       <span className="text-[11px] uppercase tracking-widest" style={{ color: "rgba(244,241,233,0.6)" }}>{label}</span>
@@ -110,7 +110,7 @@ export function CurrencyIconField({ icon, value, onChange, style }) {
 /* ---------------------------------- UI atoms ---------------------------------- */
 
 export function Panel({ children, style, className = "" }) {
-  return <div className={`rounded-lg p-5 ${className}`} style={{ background: C.surface, border: `1px solid ${C.border}`, boxShadow: C.shadow, ...style }}>{children}</div>;
+  return <div className={`rounded-xl p-5 ${className}`} style={{ background: C.surface, border: `1px solid ${C.border}`, boxShadow: C.shadow, ...style }}>{children}</div>;
 }
 export function Btn({ children, onClick, variant = "primary", type = "button", full, disabled }) {
   const base = "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition-all active:scale-[0.97] disabled:opacity-50";
@@ -248,7 +248,7 @@ export function DateInput({ value, onChange, placeholder }) {
 // (editar/excluir) — só funciona por toque (não em mouse), então no desktop
 // os botões continuam sendo os de sempre, sempre visíveis. `actions` é uma
 // lista de { icon, label, onClick, background }.
-export function SwipeActions({ children, actions }) {
+export function SwipeActions({ children, actions, background = C.surface }) {
   const ACTION_WIDTH = 64;
   const maxReveal = actions.length * ACTION_WIDTH;
   const [dragX, setDragX] = useState(0);
@@ -293,7 +293,7 @@ export function SwipeActions({ children, actions }) {
       </div>
       <div
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag}
-        style={{ transform: `translateX(${dragX}px)`, transition: draggingRef.current ? "none" : "transform 0.2s ease-out", background: "var(--bg)", touchAction: "pan-y" }}
+        style={{ transform: `translateX(${dragX}px)`, transition: draggingRef.current ? "none" : "transform 0.2s ease-out", background, touchAction: "pan-y" }}
       >
         {children}
       </div>
@@ -572,27 +572,6 @@ export function PersonFilter({ profiles, selectedIds, onChange }) {
 }
 
 /* ---------------------------------- ADMIN: REPORTS ---------------------------------- */
-
-export function ReportTabs({ view, setView, isAdmin }) {
-  const items = [
-    { id: "charts", label: "Gráficos", icon: <PieIcon size={15} /> },
-    ...(isAdmin ? [{ id: "activity", label: "Atividade", icon: <History size={15} /> }] : []),
-  ];
-  if (items.length <= 1) return null; // nada pra alternar — não faz sentido mostrar um seletor de 1 opção só
-  return (
-    <div className="flex gap-2 mb-4">
-      {items.map((it) => {
-        const active = view === it.id;
-        return (
-          <button key={it.id} onClick={() => setView(it.id)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
-            style={{ background: active ? C.gold : C.surface, color: active ? "var(--gold-contrast)" : C.muted, border: `1px solid ${active ? C.gold : C.border}` }}>
-            {it.icon} {it.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 // Some depois de rolar um pouco a tela; some de volta perto do topo. Fica do
 // lado esquerdo pra não brigar com o botão flutuante de adicionar (direita).
