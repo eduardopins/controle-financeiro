@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { CreditCard, Plus, Pencil, Trash2, LogOut, Wallet, PieChart as PieIcon, X, Check, Lock, AlertTriangle, Repeat, Clock, Sun, Moon, Paperclip, TrendingUp, TrendingDown, DollarSign, CheckSquare, Square, Share2, Percent, PiggyBank, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
+import { CreditCard, Plus, Pencil, Trash2, LogOut, Wallet, PieChart as PieIcon, X, Check, Lock, AlertTriangle, Repeat, Clock, Sun, Moon, Paperclip, TrendingUp, TrendingDown, DollarSign, CheckSquare, Square, Share2, Percent, PiggyBank, ArrowDownCircle, ArrowUpCircle, History } from "lucide-react";
 import { C, CATEGORIES } from "../lib/constants";
 import { brl, firstName, sortByName, monthKeyFromDate, currentMonthKey, diffMonths, diffDays, monthLabel, openInvoiceMonth, invoiceMonthForPurchase, isDueIn, monthlyValue, overridesMap, billingInfo, isIncomeDueIn, detectBank, shade, incomeMonthlyValue, projectMonthEnd, investmentBalance, estimatedYieldToDate, investmentMonthlyRate, getCategoryColor, parseBankCSV, monthKeysForPeriod, paidForInvoice, invoicePaymentStatus, formatShortDate } from "../lib/domain";
 import { friendlyError, guardedHandler } from "../lib/errors";
@@ -50,7 +50,7 @@ export function Login({ onLogin, theme, onToggleTheme }) {
   );
 }
 
-export function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh }) {
+export function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh, isAdmin, onShowActivity }) {
   const [uploading, setUploading] = useState(false);
   const handleAvatarUpload = async (file) => {
     setUploading(true);
@@ -71,6 +71,7 @@ export function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh 
           {profile.role === "admin" && <Chip>admin</Chip>}
         </div>
         <div className="flex items-center gap-3">
+          {isAdmin && <button onClick={onShowActivity} aria-label="Atividade recente" title="Atividade recente"><History size={16} color={C.muted} /></button>}
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <button onClick={onLogout} aria-label="Sair da conta" title="Sair"><LogOut size={17} color={C.muted} /></button>
         </div>
@@ -1377,7 +1378,7 @@ export function RecentReconciliationBanner({ expenses, reconciliations, profileI
 
 /* ---------------------------------- DASHBOARDS ---------------------------------- */
 
-export function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, data, refresh, onAddExpense, onAddIncome }) {
+export function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, data, refresh, onAddExpense, onAddIncome, isAdmin, onShowActivity }) {
   const [uploading, setUploading] = useState(false);
   const handleAvatarUpload = async (file) => {
     setUploading(true);
@@ -1433,6 +1434,11 @@ export function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLo
           <div className="text-xs font-semibold truncate" style={{ color: C.text }}>{firstName(profile.name)}</div>
           {profile.role === "admin" && <div className="text-[10.5px]" style={{ color: C.muted }}>admin</div>}
         </div>
+        {isAdmin && (
+          <button onClick={onShowActivity} aria-label="Atividade recente" className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all" style={{ border: `1px solid ${C.border}` }} title="Atividade recente">
+            <History size={13} color={C.muted} />
+          </button>
+        )}
         <button onClick={onLogout} aria-label="Sair da conta" className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all" style={{ border: `1px solid ${C.border}` }} title="Sair">
           <LogOut size={13} color={C.muted} />
         </button>
