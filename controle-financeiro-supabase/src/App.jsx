@@ -4,6 +4,7 @@ import { C } from "./lib/constants";
 import { loadAll } from "./lib/data";
 import { useFonts, useThemeStyles, useTheme } from "./hooks";
 import { Login } from "./components/domain";
+import { LoadingSkeleton } from "./components/primitives";
 import { MemberApp, AdminApp } from "./screens";
 import { ToastProvider } from "./components/Toast";
 
@@ -63,9 +64,9 @@ export default function App() {
     };
   }, [authUser, refresh]);
 
-  if (authUser === undefined) return <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg, color: C.muted }}>Carregando…</div>;
+  if (authUser === undefined) return <LoadingSkeleton />;
   if (!authUser) return <Login onLogin={(u) => { try { localStorage.setItem("tab-member", "overview"); localStorage.setItem("tab-admin", "overview"); } catch {} setAuthUser(u); }} theme={theme} onToggleTheme={toggleTheme} />;
-  if (!profile || !data) return <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg, color: C.muted }}>{error || "Carregando…"}</div>;
+  if (!profile || !data) return error ? <div className="min-h-screen flex items-center justify-center px-6 text-center" style={{ background: C.bg, color: C.rose }}>{error}</div> : <LoadingSkeleton />;
 
   const handleLogout = async () => { await supabase.auth.signOut(); };
 

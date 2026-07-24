@@ -5,7 +5,7 @@
 export const C = {
   bg: "var(--bg)", bgSoft: "var(--bg-soft)", surface: "var(--surface)", surfaceAlt: "var(--surface-alt)",
   border: "var(--border)", borderStrong: "var(--border-strong)",
-  gold: "var(--gold)", goldSoft: "var(--gold-soft)", text: "var(--text)", muted: "var(--muted)",
+  gold: "var(--gold)", goldSoft: "var(--gold-soft)", goldDeep: "var(--gold-deep)", text: "var(--text)", muted: "var(--muted)",
   green: "var(--green)", rose: "var(--rose)", amber: "var(--amber)", shadow: "var(--shadow)",
 };
 
@@ -25,8 +25,19 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--gold); outline-
 }
 @keyframes item-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .animate-item-enter { animation: item-enter 0.28s ease-out both; }
+@keyframes modal-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modal-panel-in { from { opacity: 0; transform: translateY(18px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.animate-modal-backdrop { animation: modal-backdrop-in 0.18s ease-out both; }
+.animate-modal-panel { animation: modal-panel-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes modal-out { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(10px) scale(0.98); } }
+.animate-modal-out { animation: modal-out 0.15s ease-in both; }
+@keyframes tab-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.animate-tab-enter { animation: tab-enter 0.22s ease-out both; }
+@keyframes skeleton-pulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+.skeleton { background: var(--surface-alt); animation: skeleton-pulse 1.6s ease-in-out infinite; border-radius: 4px; }
 @media (prefers-reduced-motion: reduce) {
-  .animate-item-enter { animation: none; }
+  .animate-item-enter, .animate-modal-backdrop, .animate-modal-panel, .animate-modal-out, .animate-tab-enter { animation: none; }
+  .skeleton { animation: none; }
 }
 .theme-dark {
   --bg: #0A0C18; --bg-soft: #10132A; --surface: #151933; --surface-alt: #1C2140;

@@ -126,11 +126,11 @@ export function useBillAlerts(cards, expenses, payments) {
       const keyLimit = `notif-limit-${c.id}-${today}`;
       const keyDue = `notif-due-${c.id}-${today}`;
       if (pct >= 80 && !localStorage.getItem(keyLimit)) {
-        showLocalNotification("Limite quase no fim", `${c.name}: ${pct.toFixed(0)}% do limite já usado.`);
+        showLocalNotification("Limite quase no fim", `${c.name} · ${pct.toFixed(0)}% usado`);
         localStorage.setItem(keyLimit, "1");
       }
       if (daysUntilDue >= 0 && daysUntilDue <= 5 && !localStorage.getItem(keyDue)) {
-        showLocalNotification("Fatura vencendo", `${c.name} vence em ${daysUntilDue} ${daysUntilDue === 1 ? "dia" : "dias"}.`);
+        showLocalNotification("Fatura vencendo", `${c.name} · vence em ${daysUntilDue}d`);
         localStorage.setItem(keyDue, "1");
       }
     });
@@ -150,11 +150,11 @@ export function useBudgetAlerts(profile, data) {
       const keyOver = `notif-goal-${b.id}-${today}`;
       const keyNear = `notif-goal-near-${b.id}-${today}`;
       if (pct >= 100 && !localStorage.getItem(keyOver)) {
-        showLocalNotification("Meta estourada", `${b.category}: você já passou da meta (${pct.toFixed(0)}%).`);
+        showLocalNotification("Meta estourada", `${b.category} · ${pct.toFixed(0)}% da meta`);
         localStorage.setItem(keyOver, "1");
       } else if (pct >= 80 && pct < 100 && !localStorage.getItem(keyNear) && !localStorage.getItem(keyOver)) {
         // aviso antecipado, antes de estourar de fato — só uma vez por dia, e só se ainda não tiver avisado que estourou
-        showLocalNotification("Meta quase no limite", `${b.category}: você já usou ${pct.toFixed(0)}% da meta deste mês.`);
+        showLocalNotification("Meta quase no limite", `${b.category} · ${pct.toFixed(0)}% usado`);
         localStorage.setItem(keyNear, "1");
       }
     });
@@ -181,12 +181,12 @@ export function useWeeklyDigest(profile, data) {
     const thisWeek = sumInRange(weekAgo, now + 1);
     if (thisWeek <= 0) { localStorage.setItem(key, String(now)); return; }
     const lastWeek = sumInRange(twoWeeksAgo, weekAgo);
-    let diffText = "";
+    let trend = "";
     if (lastWeek > 0) {
       const diff = ((thisWeek - lastWeek) / lastWeek) * 100;
-      diffText = diff > 0 ? ` (${diff.toFixed(0)}% a mais que a semana passada)` : ` (${Math.abs(diff).toFixed(0)}% a menos que a semana passada)`;
+      trend = diff >= 1 ? ` · ↑${diff.toFixed(0)}%` : diff <= -1 ? ` · ↓${Math.abs(diff).toFixed(0)}%` : "";
     }
-    showLocalNotification("Resumo da semana", `Você gastou ${brl(thisWeek)} nos últimos 7 dias${diffText}.`);
+    showLocalNotification("Resumo da semana", `${brl(thisWeek)}${trend}`);
     localStorage.setItem(key, String(now));
   }, [profile.id, data.expenses]);
 }
@@ -220,7 +220,7 @@ export function useKeyboardShortcuts({ onNewExpense, onNewIncome, onNavigate }) 
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "g" || e.key === "G") { e.preventDefault(); onNewExpense(); }
       else if (e.key === "r" || e.key === "R") { e.preventDefault(); onNewIncome(); }
-      else if (["1", "2", "3", "4"].includes(e.key)) { e.preventDefault(); onNavigate(parseInt(e.key, 10) - 1); }
+      else if (["1", "2", "3", "4", "5"].includes(e.key)) { e.preventDefault(); onNavigate(parseInt(e.key, 10) - 1); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

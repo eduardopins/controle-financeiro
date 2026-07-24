@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { CreditCard, Plus, Pencil, Trash2, LayoutGrid, PieChart as PieIcon, ListChecks, Check, ChevronRight, Download, AlertTriangle, Search, TrendingUp, TrendingDown, DollarSign, CheckSquare, Share2, Percent, PiggyBank, History, BellRing, SlidersHorizontal } from "lucide-react";
+import { CreditCard, Plus, Pencil, Trash2, LayoutGrid, PieChart as PieIcon, ListChecks, Check, ChevronRight, Download, AlertTriangle, Search, TrendingUp, TrendingDown, DollarSign, CheckSquare, Share2, Percent, PiggyBank, History, BellRing, SlidersHorizontal, Target, X } from "lucide-react";
 import { C, CATEGORIES, HERO_GRADIENT, FALLBACK_CAT_COLORS } from "./lib/constants";
 import { brl, firstName, sortByName, currentMonthKey, monthLabel, addMonthsToKey, last6Months, openInvoiceMonth, isDueIn, monthlyValue, overridesMap, isRemovedForMonth, toCSV, toCSVAnnual, downloadCSV, isIncomeDueIn, nextInvoiceProjection, categoryComparison, downloadJSON, anyCardAlert, accessibleCards, periodPresetLabel, incomeMonthlyValue, investmentBalance, estimatedYieldToDate, investmentBalanceUpTo, investmentMonthlyRate, invoiceMonths, invoiceStatusInfo, getCategoryColor, allCategoryNames, shareSummaryImage, compactNumber, personColorFor, monthKeysForPeriod, categoryTotalsForMonths, paidForInvoice, netUsedForCard, invoiceDueDate, invoicePaymentStatus, reconciliationMap, formatShortDate, buildDisplayRows } from "./lib/domain";
 import { friendlyError, guardedHandler } from "./lib/errors";
 import { saveInvoicePayment, updateInvoicePayment, deleteInvoicePayment, saveExpenseOverride, removeExpenseForMonth, deleteExpenseOverride, syncPluggyCards, dismissUnmatchedTransaction, syncPluggyTransactions, applyPluggyValues, saveCard, deleteCard, logActivity, saveExpense, deleteExpense, restoreExpense, permanentlyDeleteExpense, setExpenseReconciled, saveBudget, deleteBudget, saveIncome, saveCustomCategory, saveInvestment, deleteInvestment, saveInvestmentTransaction, deleteInvestmentTransaction, bulkUpdateCategory } from "./lib/data";
 import { useCurrentCDI, useBillAlerts, useBudgetAlerts, useWeeklyDigest, usePersistentTab, useIsDesktop, useKeyboardShortcuts } from "./hooks";
-import { HeroPanel, CurrencyInput, Panel, Btn, Field, TextInput, Select, Amount, ProgressBar, Chip, ScreenHeader, EmptyState, BottomNav, Avatar, ReportTabs, UpcomingBillsPanel, SplitBalancePanel, FloatingAddButton } from "./components/primitives";
+import { HeroPanel, CurrencyInput, Panel, Btn, Field, TextInput, Select, Amount, ProgressBar, Chip, ScreenHeader, EmptyState, BottomNav, Avatar, ReportTabs, UpcomingBillsPanel, FloatingAddButton, ScrollToTopButton } from "./components/primitives";
 import { TopBar, ExpenseForm, CardForm, CardWidget, GroupedExpenseRow, ExpenseRow, IncomeForm, IncomeSection, InvestmentForm, InvestmentTransactionForm, InvestmentCard, InvestmentSimulator, ImportCSVModal, PayInvoiceModal, ChoosePayCardModal, ScopeChoiceModal, MonthOverrideModal, TrashModal, MonthlyReviewBanner, RecurringReviewModal, RecentReconciliationBanner, Sidebar } from "./components/domain";
 import { useToast } from "./components/Toast";
 
@@ -184,7 +184,7 @@ export function GoalsScreen({ profile, data, refresh, embedded }) {
                 {!isEditing && (
                   <div className="flex items-center gap-3">
                     <button onClick={() => { setEditingCat(cat); setValue(budget?.monthly_limit || ""); setErr(""); }}><Pencil size={14} color={C.muted} /></button>
-                    {budget && <button onClick={() => remove(budget)}><Trash2 size={14} color={C.rose} /></button>}
+                    {budget && <button onClick={() => remove(budget)} aria-label="Excluir meta"><Trash2 size={14} color={C.rose} /></button>}
                   </div>
                 )}
               </div>
@@ -230,6 +230,7 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [minValue, setMinValue] = useState("");
   const [maxValue, setMaxValue] = useState("");
   const [showValueFilter, setShowValueFilter] = useState(false);
+  const filtersActive = !!(minValue || maxValue || filterPerson !== "all" || filterCard !== "all");
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState([]);
   const [bulkCategory, setBulkCategory] = useState(CATEGORIES[0]);
@@ -257,7 +258,6 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
     const x = e.pageX - el.offsetLeft;
     el.scrollLeft = dragState.current.scrollLeft - (x - dragState.current.startX);
   };
-  const [viewMode, setViewMode] = useState("faturas");
   const [selectedMonth, setSelectedMonth] = useState(() => openInvoiceMonth(isAdmin ? data.cards : accessibleCards(data, profile.id)));
 
   const cardName = (id) => id ? (data.cards.find((c) => c.id === id)?.name || "-") : "Dinheiro/Pix";
@@ -397,7 +397,6 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
   }, "registrar o pagamento");
 
   useEffect(() => {
-    if (viewMode !== "faturas") return;
     const now = openInvoiceMonth(myCards);
     const idx = invoiceMonthsList.indexOf(now);
     const anchorIdx = Math.max(idx - 1, 0);
@@ -408,11 +407,11 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
     }, 0);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, invoiceMonthsList.join(","), filterCard, filterPerson]);
+  }, [invoiceMonthsList.join(","), filterCard, filterPerson]);
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16">
-      <ScreenHeader title={viewMode === "cards" ? "Cartões" : "Faturas"} subtitle={viewMode === "cards" ? "Limites, vencimentos e acessos" : (isAdmin ? "Todos os lançamentos" : "Seus lançamentos")} />
+      <ScreenHeader title="Faturas" subtitle={isAdmin ? "Todos os lançamentos" : "Seus lançamentos"} />
       {isAdmin && data.deletedExpenses.length > 0 && (
         <button onClick={() => setShowTrash(true)} className="flex items-center gap-1.5 text-xs mb-3 -mt-2" style={{ color: C.muted }}>
           <Trash2 size={12} /> Lixeira ({data.deletedExpenses.length})
@@ -423,44 +422,6 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
           onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onClose={() => setShowTrash(false)} />
       )}
 
-      {isAdmin && (
-        <div className="flex gap-2 mb-3">
-          <button onClick={() => setViewMode("faturas")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
-            style={{ background: viewMode === "faturas" ? C.gold : C.surface, color: viewMode === "faturas" ? "var(--gold-contrast)" : C.muted, border: `1px solid ${viewMode === "faturas" ? C.gold : C.border}` }}>
-            <ListChecks size={15} /> Faturas
-          </button>
-          <button onClick={() => setViewMode("cards")} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all"
-            style={{ background: viewMode === "cards" ? C.gold : C.surface, color: viewMode === "cards" ? "var(--gold-contrast)" : C.muted, border: `1px solid ${viewMode === "cards" ? C.gold : C.border}` }}>
-            <CreditCard size={15} /> Cartões
-          </button>
-        </div>
-      )}
-
-      {viewMode === "cards" ? (
-        <AdminCards data={data} refresh={refresh} embedded profile={profile} />
-      ) : (
-        <>
-      {isAdmin && (
-        <div className="flex gap-2 mb-3">
-          <div className="flex-1 min-w-0">
-            <Field label="Pessoa">
-              <Select value={filterPerson} onChange={(e) => setFilterPerson(e.target.value)}>
-                <option value="all">Todas</option>
-                {sortByName(data.profiles).map((u) => <option key={u.id} value={u.id}>{firstName(u.name)}</option>)}
-              </Select>
-            </Field>
-          </div>
-          <div className="flex-1 min-w-0">
-            <Field label="Cartão">
-              <Select value={filterCard} onChange={(e) => setFilterCard(e.target.value)}>
-                <option value="all">Todos</option>
-                {data.cards.map((c) => <option key={c.id} value={c.id}>{c.name}{c.archived ? " (arquivado)" : ""}</option>)}
-              </Select>
-            </Field>
-          </div>
-        </div>
-      )}
-
       <div className="relative mb-3 flex gap-2">
         <div className="relative flex-1">
           <Search size={15} color={C.muted} className="absolute left-3 top-1/2 -translate-y-1/2" />
@@ -469,36 +430,59 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
         <button
           onClick={() => setShowValueFilter((v) => !v)}
           className="w-11 h-11 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: showValueFilter || minValue || maxValue ? C.gold : C.bgSoft, border: `1px solid ${showValueFilter || minValue || maxValue ? C.gold : C.border}` }}
-          title="Filtrar por valor"
+          style={{ background: filtersActive ? C.gold : C.bgSoft, border: `1px solid ${filtersActive ? C.gold : C.border}` }}
+          title="Filtros"
         >
-          <SlidersHorizontal size={15} color={showValueFilter || minValue || maxValue ? "var(--gold-contrast)" : C.muted} />
+          <SlidersHorizontal size={15} color={filtersActive ? "var(--gold-contrast)" : C.muted} />
         </button>
       </div>
+      {/* No mobile empilha 2x2; no desktop (lg:) mostra tudo numa linha só, já que
+          tem espaço horizontal sobrando — o mesmo painel se comporta diferente
+          por plataforma em vez de ter dois componentes de filtro separados. */}
       {showValueFilter && (
-        <div className="flex gap-2 mb-3 animate-item-enter">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-3 animate-item-enter">
+          {isAdmin && (
+            <Field label="Pessoa">
+              <Select value={filterPerson} onChange={(e) => setFilterPerson(e.target.value)}>
+                <option value="all">Todas</option>
+                {sortByName(data.profiles).map((u) => <option key={u.id} value={u.id}>{firstName(u.name)}</option>)}
+              </Select>
+            </Field>
+          )}
+          {isAdmin && (
+            <Field label="Cartão">
+              <Select value={filterCard} onChange={(e) => setFilterCard(e.target.value)}>
+                <option value="all">Todos</option>
+                {data.cards.map((c) => <option key={c.id} value={c.id}>{c.name}{c.archived ? " (arquivado)" : ""}</option>)}
+              </Select>
+            </Field>
+          )}
           <Field label="Valor mínimo"><CurrencyInput value={minValue} onChange={setMinValue} /></Field>
           <Field label="Valor máximo"><CurrencyInput value={maxValue} onChange={setMaxValue} /></Field>
-          {(minValue || maxValue) && (
-            <button onClick={() => { setMinValue(""); setMaxValue(""); }} className="text-xs shrink-0 self-start mt-6" style={{ color: C.muted }}>Limpar</button>
+          {filtersActive && (
+            <button onClick={() => { setMinValue(""); setMaxValue(""); setFilterPerson("all"); setFilterCard("all"); }} className="col-span-2 lg:col-span-4 text-xs text-left" style={{ color: C.muted }}>Limpar filtros</button>
           )}
         </div>
       )}
 
-      <div className="flex gap-2 mb-4">
-        <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Novo gasto</Btn>
+      <div className="flex justify-end gap-2 mb-4">
         <div className="relative">
-          <Btn variant="ghost" onClick={() => setShowExportMenu((v) => !v)}><Download size={16} /></Btn>
+          <Btn variant="ghost" onClick={() => setShowExportMenu((v) => !v)}><Download size={16} /> Importar / exportar</Btn>
           {showExportMenu && (
             <div className="absolute right-0 mt-1.5 rounded-xl overflow-hidden z-20" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
+              <button onClick={() => { setShowExportMenu(false); setShowImportCSV(true); }} disabled={myCards.length === 0}
+                className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap disabled:opacity-40" style={{ color: C.text }}>Importar extrato do banco (CSV)</button>
               <button onClick={() => { downloadCSV(toCSV(filtered, cardName, personName), `gastos-${currentMonthKey()}.csv`); setShowExportMenu(false); }}
-                className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text }}>Planilha (CSV)</button>
+                className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>Exportar planilha (CSV)</button>
               <button onClick={() => { exportBackup(); setShowExportMenu(false); }}
-                className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>Backup (JSON)</button>
+                className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>Exportar backup (JSON)</button>
             </div>
           )}
         </div>
       </div>
+      {/* "Novo gasto" foi removido daqui: no celular o botão flutuante já cobre isso em
+          qualquer aba, e no computador os botões "Gasto"/"Receita" da barra lateral fazem
+          o mesmo — manter os dois aqui era um terceiro caminho pra mesma ação. */}
 
       {searching ? (
         <>
@@ -562,33 +546,36 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
               </div>
             </div>
 
-            <div className="rounded-3xl p-5 mb-4 relative overflow-hidden" style={{ background: HERO_GRADIENT, boxShadow: "0 14px 34px rgba(0,0,0,0.35)" }}>
-              <div style={{ position: "absolute", right: -40, top: -40, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
-              <div className="relative flex items-start justify-between gap-3 flex-wrap">
+            <div className="relative p-5 mb-4" style={{ background: C.goldDeep, borderRadius: 6, boxShadow: C.shadow }}>
+              <div style={{ position: "absolute", top: 0, right: 0, width: 20, height: 20, background: "linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.28) 50%)", borderRadius: "0 6px 0 0" }} />
+              <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
-                  <div className="text-[11px] opacity-80" style={{ color: "var(--gold-contrast)" }}>Fatura de {monthLabel(selectedMonth)}</div>
-                  <div className="text-2xl sm:text-3xl font-bold mt-1" style={{ color: "var(--gold-contrast)", fontFamily: "'IBM Plex Mono', monospace" }}>{brl(invoiceTotal)}</div>
+                  <div className="text-[11px] uppercase tracking-widest" style={{ color: "rgba(244,241,233,0.6)" }}>Fatura de {monthLabel(selectedMonth)}</div>
+                  <div className="text-2xl sm:text-3xl font-bold mt-1.5" style={{ color: "#F4F1E9", fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "-0.02em" }}>{brl(invoiceTotal)}</div>
                 </div>
                 {paymentStatus && (
-                  <span className="shrink-0 rounded-full px-3 py-1.5 text-xs font-bold" style={{
-                    background: paymentStatus.tone === "gold" ? "rgba(255,255,255,0.9)" : paymentStatus.tone === "green" ? "#2F7A5C" : paymentStatus.tone === "rose" ? "#C0504D" : paymentStatus.tone === "amber" ? "#CBA05A" : "rgba(255,255,255,0.15)",
-                    color: paymentStatus.tone === "gold" ? "#1A1607" : "#fff",
+                  <span className="shrink-0 rounded px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide" style={{
+                    background: "transparent",
+                    color: paymentStatus.tone === "green" ? "var(--green)" : paymentStatus.tone === "rose" ? "var(--rose)" : paymentStatus.tone === "amber" || paymentStatus.tone === "gold" ? "var(--amber)" : "rgba(244,241,233,0.6)",
+                    border: `1.5px solid ${paymentStatus.tone === "green" ? "var(--green)" : paymentStatus.tone === "rose" ? "var(--rose)" : paymentStatus.tone === "amber" || paymentStatus.tone === "gold" ? "var(--amber)" : "rgba(244,241,233,0.4)"}`,
+                    transform: "rotate(-2deg)",
                   }}>
                     {paymentStatus.label}
                   </span>
                 )}
               </div>
-              <div className="relative flex items-center justify-between gap-3 mt-3 flex-wrap">
+              <div style={{ height: 1, background: "rgba(244,241,233,0.18)", marginTop: 14, marginBottom: 12 }} />
+              <div className="flex items-center justify-between gap-3 flex-wrap">
                 {displayCard ? (
-                  <p className="text-xs" style={{ color: "var(--gold-contrast)", opacity: 0.85 }}>
+                  <p className="text-xs" style={{ color: "rgba(244,241,233,0.6)" }}>
                     {invoiceStatus.label === "aberta" ? "Fecha" : invoiceStatus.label === "futura" ? "Fecha" : "Fechou"} dia {displayCard.closing_day} · vence dia {displayCard.due_day}
                     {invoiceSingleCard && invoicePaidTotal > 0 && ` · ${brl(invoicePaidTotal)} pago${invoicePaidTotal < invoiceTotal ? ` de ${brl(invoiceTotal)}` : ""}`}
                   </p>
                 ) : <span />}
                 {isAdmin && (
                   <button onClick={() => (invoiceSingleCard ? setShowPayModal(true) : setShowPayPicker(true))}
-                    className="flex items-center justify-center gap-1.5 rounded-xl py-2 px-4 text-sm font-semibold shrink-0"
-                    style={{ background: "rgba(255,255,255,0.14)", color: "var(--gold-contrast)", border: "1px solid rgba(255,255,255,0.25)" }}>
+                    className="flex items-center justify-center gap-1.5 rounded-lg py-2 px-4 text-sm font-semibold shrink-0"
+                    style={{ background: "rgba(244,241,233,0.1)", color: "#F4F1E9", border: "1px solid rgba(244,241,233,0.25)" }}>
                     <DollarSign size={15} /> Pagar fatura
                   </button>
                 )}
@@ -675,8 +662,6 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
           </>
         )
       )}
-        </>
-      )}
 
       {showForm && (
         <ExpenseForm cards={myCards} userId={editing?.profile_id || profile.id} initial={editing}
@@ -720,7 +705,6 @@ export function MemberOverview({ profile, data, refresh }) {
       <RecentReconciliationBanner expenses={data.expenses} reconciliations={data.reconciliations} profileId={profile.id} profiles={data.profiles} />
       <HeroPanel label="Total do mês" value={myMonthTotal} />
       <IncomeSection profile={profile} data={data} refresh={refresh} />
-      <SplitBalancePanel expenses={data.expenses} monthKey={now} profiles={data.profiles} viewerProfileId={profile.id} />
       <UpcomingBillsPanel cards={myCards.filter((c) => !c.archived)} expenses={data.expenses} />
 
       {myCards.filter((c) => !c.archived).length > 0 ? (
@@ -740,7 +724,7 @@ export function MemberOverview({ profile, data, refresh }) {
 
 /* ---------------------------------- ADMIN: OVERVIEW ---------------------------------- */
 
-export function AdminOverview({ profile, data, refresh }) {
+export function AdminOverview({ profile, data, refresh, onManageCards }) {
   const now = openInvoiceMonth(data.cards);
   const prevMonth = addMonthsToKey(now, -1);
   const [scopeIds, setScopeIds] = useState([]);
@@ -786,7 +770,6 @@ export function AdminOverview({ profile, data, refresh }) {
         <MonthlyReviewBanner onOpen={() => setShowRecurringReview(true)} />
         <RecentReconciliationBanner expenses={data.expenses} reconciliations={data.reconciliations} profileId={profile.id} profiles={data.profiles} />
         <HeroPanel label={scopeActive ? buildHeading(scopeIds) : "Total do mês"} value={totalMonth} />
-        <SplitBalancePanel expenses={data.expenses} monthKey={now} profiles={data.profiles} viewerProfileId={profile.id} />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {byPerson.map((p) => {
             const active = scopeIds.includes(p.id);
@@ -815,7 +798,10 @@ export function AdminOverview({ profile, data, refresh }) {
         </div>
         <IncomeSection profile={profile} data={data} refresh={refresh} scopeIds={scopeIds} scopeLabel={scopeActive ? `saldo · ${buildHeading(scopeIds)}` : undefined} />
         <UpcomingBillsPanel cards={data.cards.filter((c) => !c.archived)} expenses={data.expenses} />
-        <h4 className="text-xs font-medium mb-1 tracking-wide uppercase" style={{ color: C.muted }}>Cartões</h4>
+        <button onClick={onManageCards} className="flex items-center justify-between w-full mb-1">
+          <h4 className="text-xs font-medium tracking-wide uppercase" style={{ color: C.muted }}>Cartões</h4>
+          <span className="text-[11px] flex items-center gap-1" style={{ color: C.gold }}>Gerenciar <ChevronRight size={12} /></span>
+        </button>
         <div className={`grid grid-cols-1 ${data.cards.filter((c) => !c.archived).length > 1 ? "sm:grid-cols-2" : ""} gap-3`}>
           {data.cards.filter((c) => !c.archived).map((c) => {
             const used = netUsedForCard(data.expenses, data.invoicePayments, c.id, now);
@@ -967,7 +953,7 @@ export function AdminCards({ data, refresh, embedded, profile }) {
                   </span>
                   <div className="flex gap-3 shrink-0 ml-2">
                     <button onClick={() => { setEditing(c); setShowForm(true); }}><Pencil size={14} color={C.muted} /></button>
-                    <button onClick={() => handleDelete(c)}><Trash2 size={14} color={C.rose} /></button>
+                    <button onClick={() => handleDelete(c)} aria-label="Excluir cartão"><Trash2 size={14} color={C.rose} /></button>
                   </div>
                 </div>
               </Panel>
@@ -1017,39 +1003,11 @@ export function AdminCards({ data, refresh, embedded, profile }) {
   );
 }
 
-export function ActivityLogScreen({ data, embedded }) {
-  const personName = (id) => firstName((data.profiles || []).find((p) => p.id === id)?.name) || "-";
-  const personProfile = (id) => (data.profiles || []).find((p) => p.id === id);
-  const log = data.activityLog || [];
-  return (
-    <div className={embedded ? "" : "max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16"}>
-      <Panel>
-        {log.length === 0 ? (
-          <EmptyState icon={<History size={28} />} text="Nenhuma atividade registrada ainda." />
-        ) : (
-          <div className="space-y-3.5">
-            {log.map((a) => (
-              <div key={a.id} className="flex items-start gap-3 pb-3.5" style={{ borderBottom: `1px solid ${C.border}` }}>
-                <Avatar profile={personProfile(a.profile_id)} size={28} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm" style={{ color: C.text }}>{a.description}</div>
-                  <div className="text-[11px]" style={{ color: C.muted }}>
-                    {personName(a.profile_id)} · {formatShortDate(a.created_at.slice(0, 10))} às {a.created_at.slice(11, 16)}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Panel>
-    </div>
-  );
-}
-
 function AppShell({ profile, data, refresh, onLogout, theme, onToggleTheme, isAdmin }) {
   const [tab, setTab] = usePersistentTab(isAdmin ? "tab-admin" : "tab-member", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
+  const [showCardsManagement, setShowCardsManagement] = useState(false);
   const myCards = isAdmin ? data.cards : accessibleCards(data, profile.id);
   useBillAlerts(myCards, data.expenses, data.invoicePayments);
   useBudgetAlerts(profile, data);
@@ -1057,11 +1015,12 @@ function AppShell({ profile, data, refresh, onLogout, theme, onToggleTheme, isAd
   useKeyboardShortcuts({
     onNewExpense: () => setShowQuickAdd(true),
     onNewIncome: () => setShowQuickIncome(true),
-    onNavigate: (i) => setTab(["overview", "history", "reports", "investments"][i] || tab),
+    onNavigate: (i) => setTab(["overview", "history", "goals", "reports", "investments"][i] || tab),
   });
   const tabs = [
     { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
     { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(myCards, data.expenses, data.invoicePayments) },
+    { id: "goals", label: "Metas", icon: <Target size={18} /> },
     { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
     { id: "investments", label: "Invest.", fullLabel: "Investimentos", icon: <PiggyBank size={18} /> },
   ];
@@ -1078,14 +1037,31 @@ function AppShell({ profile, data, refresh, onLogout, theme, onToggleTheme, isAd
       <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
       <div className="lg:flex-1 lg:min-w-0">
         <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} /></div>
-        {tab === "overview" && <OverviewScreen profile={profile} data={data} refresh={refresh} />}
-        {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={isAdmin} />}
-        {tab === "reports" && <Suspense fallback={<ReportsScreenFallback />}><ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin={isAdmin} /></Suspense>}
-        {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin={isAdmin} />}
+        <div key={tab}>
+          {tab === "overview" && <OverviewScreen profile={profile} data={data} refresh={refresh} onManageCards={() => setShowCardsManagement(true)} />}
+          {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={isAdmin} />}
+          {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
+          {tab === "reports" && <Suspense fallback={<ReportsScreenFallback />}><ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin={isAdmin} /></Suspense>}
+          {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin={isAdmin} />}
+        </div>
         <FloatingAddButton onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
+        <ScrollToTopButton />
         {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id} canRefund={isAdmin} expenses={data.expenses}
           customCategories={data.customCategories} onAddCategory={guardedHandler(async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }, "adicionar a categoria")} />}
         {showQuickIncome && <IncomeForm profileId={profile.id} onSave={handleQuickIncomeSave} onClose={() => setShowQuickIncome(false)} />}
+        {showCardsManagement && (
+          <div className="fixed inset-0 z-40 overflow-y-auto animate-tab-enter" style={{ background: C.bg }}>
+            <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3.5 lg:px-10" style={{ background: "var(--bg)", borderBottom: `1px solid ${C.border}`, paddingTop: "env(safe-area-inset-top, 0px)" }}>
+              <button onClick={() => setShowCardsManagement(false)} className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ border: `1px solid ${C.border}` }}>
+                <X size={15} color={C.muted} />
+              </button>
+              <span className="text-sm font-semibold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>Gerenciar cartões</span>
+            </div>
+            <div className="max-w-3xl mx-auto px-4 py-5 pb-10 lg:max-w-6xl lg:px-10 lg:pt-8">
+              <AdminCards data={data} refresh={refresh} embedded profile={profile} />
+            </div>
+          </div>
+        )}
         <div className="lg:hidden"><BottomNav tabs={tabs} tab={tab} setTab={setTab} /></div>
       </div>
     </div>

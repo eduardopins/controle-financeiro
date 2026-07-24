@@ -1,58 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, PieChart as PieIcon, X, ChevronRight, Target, Sun, Moon, Paperclip, Zap, Calendar, Camera, History, BellRing, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
+import { Plus, PieChart as PieIcon, X, ChevronRight, Target, Sun, Moon, Paperclip, Zap, Calendar, Camera, History, BellRing } from "lucide-react";
 import { C, MONTHS_FULL_PT, WEEKDAYS_PT, HERO_GRADIENT } from "../lib/constants";
-import { brl, firstName, sortByName, upcomingBills, formatMoneyFromCents, formatDateBR, daysInMonth, pad2, splitBalances } from "../lib/domain";
+import { brl, firstName, sortByName, upcomingBills, formatMoneyFromCents, formatDateBR, daysInMonth, pad2 } from "../lib/domain";
 import { useCountUp } from "../hooks";
-
-
-// Resumo de "quem deve quem" nos gastos divididos do mês. Só aparece se a
-// pessoa que está olhando tiver alguma divisão pendente com outra pessoa.
-export function SplitBalancePanel({ expenses, monthKey, profiles, viewerProfileId }) {
-  const balances = splitBalances(expenses, monthKey).filter((b) => b.owerId === viewerProfileId || b.payerId === viewerProfileId);
-  const [expanded, setExpanded] = useState(null);
-  if (balances.length === 0) return null;
-  const nameOf = (id) => firstName(profiles.find((p) => p.id === id)?.name) || "alguém";
-  return (
-    <Panel className="mb-4">
-      <h4 className="text-xs font-medium mb-3 tracking-wide uppercase flex items-center gap-1.5" style={{ color: C.muted }}>
-        <ArrowUpCircle size={12} color={C.gold} /> Divisão de gastos este mês
-      </h4>
-      <div className="space-y-1">
-        {balances.map((b, i) => {
-          const youOwe = b.owerId === viewerProfileId;
-          const isOpen = expanded === i;
-          return (
-            <div key={i}>
-              <button onClick={() => setExpanded(isOpen ? null : i)} className="w-full flex items-center justify-between text-sm py-1.5">
-                <div className="flex items-center gap-2">
-                  {youOwe ? <ArrowUpCircle size={14} color={C.rose} /> : <ArrowDownCircle size={14} color={C.green} />}
-                  <span style={{ color: C.text }}>{youOwe ? `Você deve pra ${nameOf(b.payerId)}` : `${nameOf(b.owerId)} te deve`}</span>
-                  <ChevronRight size={12} color={C.muted} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
-                </div>
-                <Amount value={b.amount} size="text-sm" tone={youOwe ? "rose" : "green"} />
-              </button>
-              {isOpen && (
-                <div className="animate-item-enter ml-6 mb-2 pl-2.5 space-y-1" style={{ borderLeft: `2px solid ${C.border}` }}>
-                  {b.items.map((it, j) => (
-                    <div key={j} className="flex items-center justify-between text-xs">
-                      <span className="truncate mr-2" style={{ color: C.muted }}>
-                        {it.direction === "offset" ? "− " : "+ "}{it.description} · {formatDateBR(it.date)}
-                      </span>
-                      <span style={{ color: it.direction === "offset" ? C.green : C.muted }}>{brl(it.amount)}</span>
-                    </div>
-                  ))}
-                  <p className="text-[10px] pt-1" style={{ color: C.muted }}>
-                    O valor acima já é o saldo líquido — o que foi devido numa direção menos o que foi devido na outra.
-                  </p>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </Panel>
-  );
-}
 
 export function UpcomingBillsPanel({ cards, expenses }) {
   const bills = upcomingBills(cards, expenses);
@@ -77,17 +27,40 @@ export function UpcomingBillsPanel({ cards, expenses }) {
   );
 }
 
+// Tela de carregamento inicial, no lugar de um texto solto "Carregando...".
+// Imita o formato real da tela (topo + card grande + linhas de lista) pra dar
+// uma ideia de "o conteúdo já tá quase aparecendo" em vez de tela em branco.
+export function LoadingSkeleton() {
+  return (
+    <div className="min-h-screen" style={{ background: C.bg }}>
+      <div className="max-w-3xl mx-auto px-4 py-5">
+        <div className="flex items-center gap-2.5 mb-5">
+          <div className="skeleton" style={{ width: 30, height: 30, borderRadius: 999 }} />
+          <div className="skeleton" style={{ width: 90, height: 14 }} />
+        </div>
+        <div className="skeleton mb-4" style={{ height: 118, borderRadius: 24 }} />
+        <div className="space-y-2.5">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="skeleton" style={{ height: 62 }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function HeroPanel({ label, value, sub }) {
   const animated = useCountUp(value);
   return (
-    <div className="rounded-3xl p-6 mb-4 relative overflow-hidden" style={{ background: HERO_GRADIENT, boxShadow: "0 14px 34px rgba(0,0,0,0.35)" }}>
-      <div style={{ position: "absolute", right: -40, top: -40, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
-      <div style={{ position: "absolute", left: -25, bottom: -55, width: 130, height: 130, borderRadius: "50%", background: "rgba(255,255,255,0.06)" }} />
-      <span className="text-xs relative" style={{ color: "rgba(255,255,255,0.75)" }}>{label}</span>
-      <div className="mt-1 relative">
-        <span className="text-3xl font-extrabold" style={{ color: "#fff", fontFamily: "'Manrope', sans-serif", fontVariantNumeric: "tabular-nums" }}>{brl(animated)}</span>
+    <div className="relative p-6 mb-4" style={{ background: C.goldDeep, borderRadius: 6, boxShadow: C.shadow }}>
+      {/* dobra de canto, como a página de um livro-caixa */}
+      <div style={{ position: "absolute", top: 0, right: 0, width: 22, height: 22, background: `linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.28) 50%)`, borderRadius: "0 6px 0 0" }} />
+      <span className="text-[11px] uppercase tracking-widest" style={{ color: "rgba(244,241,233,0.6)" }}>{label}</span>
+      <div className="mt-2">
+        <span className="text-4xl font-bold" style={{ color: "#F4F1E9", fontFamily: "'IBM Plex Mono', monospace", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{brl(animated)}</span>
       </div>
-      {sub && <div className="mt-1 relative text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>{sub}</div>}
+      <div style={{ height: 1, background: "rgba(244,241,233,0.18)", marginTop: 14, marginBottom: sub ? 8 : 0 }} />
+      {sub && <div className="text-xs" style={{ color: "rgba(244,241,233,0.6)" }}>{sub}</div>}
     </div>
   );
 }
@@ -137,7 +110,7 @@ export function CurrencyIconField({ icon, value, onChange, style }) {
 /* ---------------------------------- UI atoms ---------------------------------- */
 
 export function Panel({ children, style, className = "" }) {
-  return <div className={`rounded-2xl p-5 ${className}`} style={{ background: C.surface, border: `1px solid ${C.border}`, boxShadow: C.shadow, ...style }}>{children}</div>;
+  return <div className={`rounded-lg p-5 ${className}`} style={{ background: C.surface, border: `1px solid ${C.border}`, boxShadow: C.shadow, ...style }}>{children}</div>;
 }
 export function Btn({ children, onClick, variant = "primary", type = "button", full, disabled }) {
   const base = "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition-all active:scale-[0.97] disabled:opacity-50";
@@ -156,17 +129,26 @@ export const inputClass = "w-full rounded-lg px-3 py-2.5 text-base outline-none 
 export function TextInput(props) { return <input {...props} className={inputClass} style={{ ...inputStyle, ...(props.style || {}) }} />; }
 export function Select(props) { return <select {...props} className={inputClass} style={inputStyle} />; }
 export function Modal({ title, onClose, children }) {
+  const [closing, setClosing] = useState(false);
+  const close = () => {
+    setClosing(true);
+    setTimeout(onClose, 150); // espera a animação de saída antes de desmontar de verdade
+  };
   useEffect(() => {
-    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    const handler = (e) => { if (e.key === "Escape") close(); };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(6,8,20,0.75)" }} onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl p-5 max-h-[85vh] overflow-y-auto" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }} onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(6,8,20,0.75)", animation: closing ? "modal-backdrop-in 0.15s ease-in reverse both" : "modal-backdrop-in 0.18s ease-out both" }}
+      onClick={close}>
+      <div className={closing ? "animate-modal-out" : "animate-modal-panel"} onClick={(e) => e.stopPropagation()}
+        style={{ width: "100%", maxWidth: 448, borderRadius: 16, padding: 20, maxHeight: "85vh", overflowY: "auto", background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{title}</h3>
-          <button onClick={onClose}><X size={18} color={C.muted} /></button>
+          <button onClick={close} aria-label="Fechar"><X size={18} color={C.muted} /></button>
         </div>
         {children}
       </div>
@@ -262,18 +244,90 @@ export function DateInput({ value, onChange, placeholder }) {
   );
 }
 
-export function FileInput({ onFileSelected, accept, label }) {
+// Desliza o conteúdo pra esquerda com o dedo e revela botões de ação atrás
+// (editar/excluir) — só funciona por toque (não em mouse), então no desktop
+// os botões continuam sendo os de sempre, sempre visíveis. `actions` é uma
+// lista de { icon, label, onClick, background }.
+export function SwipeActions({ children, actions }) {
+  const ACTION_WIDTH = 64;
+  const maxReveal = actions.length * ACTION_WIDTH;
+  const [dragX, setDragX] = useState(0);
+  const draggingRef = useRef(false);
+  const startRef = useRef({ x: 0, y: 0, baseX: 0 });
+  const lockedAxisRef = useRef(null); // "x" | "y" | null — decide na primeira movimentação se é swipe ou scroll da página
+
+  const onPointerDown = (e) => {
+    if (e.pointerType === "mouse") return; // no desktop os botões normais já resolvem
+    startRef.current = { x: e.clientX, y: e.clientY, baseX: dragX };
+    lockedAxisRef.current = null;
+    draggingRef.current = true;
+  };
+  const onPointerMove = (e) => {
+    if (!draggingRef.current) return;
+    const dx = e.clientX - startRef.current.x;
+    const dy = e.clientY - startRef.current.y;
+    if (!lockedAxisRef.current) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return; // ainda não deu pra saber a intenção
+      lockedAxisRef.current = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+    }
+    if (lockedAxisRef.current !== "x") return; // é rolagem vertical da página, deixa passar
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const next = Math.min(0, Math.max(-maxReveal, startRef.current.baseX + dx));
+    setDragX(next);
+  };
+  const endDrag = () => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    if (lockedAxisRef.current === "x") setDragX((x) => (x < -maxReveal / 2 ? -maxReveal : 0));
+  };
+
+  return (
+    <div className="relative">
+      <div className="absolute inset-y-0 right-0 flex lg:hidden" style={{ width: maxReveal }}>
+        {actions.map((a, i) => (
+          <button key={i} onClick={() => { a.onClick(); setDragX(0); }} aria-label={a.label}
+            className="flex items-center justify-center h-full" style={{ width: ACTION_WIDTH, background: a.background }}>
+            {a.icon}
+          </button>
+        ))}
+      </div>
+      <div
+        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag}
+        style={{ transform: `translateX(${dragX}px)`, transition: draggingRef.current ? "none" : "transform 0.2s ease-out", background: "var(--bg)", touchAction: "pan-y" }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+export function FileInput({ onFileSelected, accept, label, maxSizeMB = 10 }) {
   const inputRef = useRef(null);
   const [fileName, setFileName] = useState("");
+  const [error, setError] = useState("");
+  const handleChange = (e) => {
+    const f = e.target.files?.[0] || null;
+    if (f && f.size > maxSizeMB * 1024 * 1024) {
+      setError(`Esse arquivo tem ${(f.size / (1024 * 1024)).toFixed(1)} MB — o máximo é ${maxSizeMB} MB.`);
+      setFileName("");
+      e.target.value = ""; // permite escolher o mesmo arquivo de novo depois de trocar
+      return;
+    }
+    setError("");
+    setFileName(f?.name || "");
+    onFileSelected(f);
+  };
   return (
-    <div className="flex items-center gap-2.5 flex-wrap">
-      <button type="button" onClick={() => inputRef.current?.click()} className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium transition-all"
-        style={{ background: C.bgSoft, color: C.text, border: `1px solid ${C.border}` }}>
-        <Paperclip size={13} /> {label || "Escolher arquivo"}
-      </button>
-      <span className="text-xs truncate" style={{ color: fileName ? C.text : C.muted, maxWidth: 160 }}>{fileName || "Nenhum arquivo escolhido"}</span>
-      <input ref={inputRef} type="file" accept={accept} className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0] || null; setFileName(f?.name || ""); onFileSelected(f); }} />
+    <div>
+      <div className="flex items-center gap-2.5 flex-wrap">
+        <button type="button" onClick={() => inputRef.current?.click()} className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium transition-all"
+          style={{ background: C.bgSoft, color: C.text, border: `1px solid ${C.border}` }}>
+          <Paperclip size={13} /> {label || "Escolher arquivo"}
+        </button>
+        <span className="text-xs truncate" style={{ color: fileName ? C.text : C.muted, maxWidth: 160 }}>{fileName || "Nenhum arquivo escolhido"}</span>
+        <input ref={inputRef} type="file" accept={accept} className="hidden" onChange={handleChange} />
+      </div>
+      {error && <p className="text-xs mt-1.5" style={{ color: C.rose }}>{error}</p>}
     </div>
   );
 }
@@ -304,11 +358,12 @@ export function ScreenHeader({ title, subtitle }) {
     </div>
   );
 }
-export function EmptyState({ icon, text }) {
+export function EmptyState({ icon, text, action }) {
   return (
-    <div className="flex flex-col items-center justify-center text-center py-10 gap-2">
-      <div style={{ color: C.muted, opacity: 0.6 }}>{icon}</div>
-      <p className="text-sm" style={{ color: C.muted }}>{text}</p>
+    <div className="flex flex-col items-center justify-center text-center py-9 px-4 gap-2.5" style={{ border: `1.5px dashed ${C.border}`, borderRadius: 4 }}>
+      <div style={{ color: C.muted, opacity: 0.55 }}>{icon}</div>
+      <p className="text-sm max-w-[240px]" style={{ color: C.muted }}>{text}</p>
+      {action}
     </div>
   );
 }
@@ -436,6 +491,11 @@ export function Avatar({ profile, size = 32, editable, onUpload, uploading }) {
   const initial = firstName(profile?.name || "?").charAt(0).toUpperCase();
 
   const handleFileSelected = (file) => {
+    const maxMB = 10;
+    if (file.size > maxMB * 1024 * 1024) {
+      alert(`Essa foto tem ${(file.size / (1024 * 1024)).toFixed(1)} MB — o máximo é ${maxMB} MB. Tente uma foto menor.`);
+      return;
+    }
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
@@ -449,7 +509,7 @@ export function Avatar({ profile, size = 32, editable, onUpload, uploading }) {
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       {profile?.avatar_url ? (
-        <img src={profile.avatar_url} alt="" className="w-full h-full rounded-full object-cover" />
+        <img src={profile.avatar_url} alt={`Foto de ${profile?.name || "perfil"}`} className="w-full h-full rounded-full object-cover" />
       ) : (
         <div className="w-full h-full rounded-full flex items-center justify-center font-bold"
           style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldSoft})`, color: "var(--gold-contrast)", fontFamily: "'Manrope', sans-serif", fontSize: size * 0.42 }}>
@@ -477,7 +537,8 @@ export function Avatar({ profile, size = 32, editable, onUpload, uploading }) {
 
 export function ThemeToggle({ theme, onToggle }) {
   return (
-    <button onClick={onToggle} className="w-8 h-8 rounded-full flex items-center justify-center transition-all" style={{ border: `1px solid ${C.border}` }}>
+    <button onClick={onToggle} aria-label={theme === "dark" ? "Mudar para tema claro" : "Mudar para tema escuro"} title={theme === "dark" ? "Tema claro" : "Tema escuro"}
+      className="w-8 h-8 rounded-full flex items-center justify-center transition-all" style={{ border: `1px solid ${C.border}` }}>
       {theme === "dark" ? <Sun size={14} color={C.gold} /> : <Moon size={14} color={C.gold} />}
     </button>
   );
@@ -515,9 +576,9 @@ export function PersonFilter({ profiles, selectedIds, onChange }) {
 export function ReportTabs({ view, setView, isAdmin }) {
   const items = [
     { id: "charts", label: "Gráficos", icon: <PieIcon size={15} /> },
-    { id: "goals", label: "Metas", icon: <Target size={15} /> },
     ...(isAdmin ? [{ id: "activity", label: "Atividade", icon: <History size={15} /> }] : []),
   ];
+  if (items.length <= 1) return null; // nada pra alternar — não faz sentido mostrar um seletor de 1 opção só
   return (
     <div className="flex gap-2 mb-4">
       {items.map((it) => {
@@ -530,6 +591,28 @@ export function ReportTabs({ view, setView, isAdmin }) {
         );
       })}
     </div>
+  );
+}
+
+// Some depois de rolar um pouco a tela; some de volta perto do topo. Fica do
+// lado esquerdo pra não brigar com o botão flutuante de adicionar (direita).
+export function ScrollToTopButton() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setVisible(window.scrollY > 480);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  if (!visible) return null;
+  return (
+    <button
+      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+      className="animate-item-enter fixed z-40 w-11 h-11 rounded-full flex items-center justify-center left-[18px] bottom-[calc(78px+env(safe-area-inset-bottom,0px))] lg:bottom-6"
+      style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}
+      title="Voltar ao topo"
+    >
+      <ChevronRight size={18} color={C.gold} style={{ transform: "rotate(-90deg)" }} />
+    </button>
   );
 }
 
@@ -549,7 +632,7 @@ export function FloatingAddButton({ onAddExpense, onAddIncome }) {
           </button>
         </>
       )}
-      <button onClick={() => setOpen((v) => !v)} className="rounded-full flex items-center justify-center transition-all active:scale-95"
+      <button onClick={() => setOpen((v) => !v)} aria-label={open ? "Fechar menu de adicionar" : "Adicionar gasto ou receita"} className="rounded-full flex items-center justify-center transition-all active:scale-95"
         style={{ width: 54, height: 54, background: HERO_GRADIENT, boxShadow: "0 10px 24px rgba(0,0,0,0.4)", transform: open ? "rotate(45deg)" : "none" }}>
         <Zap size={22} color="#fff" style={{ display: open ? "none" : "block" }} />
         <Plus size={24} color="#fff" style={{ display: open ? "block" : "none" }} />

@@ -5,7 +5,7 @@ import { C, CATEGORIES } from "../lib/constants";
 import { brl, firstName, sortByName, monthKeyFromDate, currentMonthKey, diffMonths, diffDays, monthLabel, openInvoiceMonth, invoiceMonthForPurchase, isDueIn, monthlyValue, overridesMap, billingInfo, isIncomeDueIn, detectBank, shade, incomeMonthlyValue, projectMonthEnd, investmentBalance, estimatedYieldToDate, investmentMonthlyRate, getCategoryColor, parseBankCSV, monthKeysForPeriod, paidForInvoice, invoicePaymentStatus, formatShortDate } from "../lib/domain";
 import { friendlyError, guardedHandler } from "../lib/errors";
 import { uploadReceipt, uploadAvatar, saveProfileAvatar, logActivity, deleteExpense, deleteIncome, extractReceiptData } from "../lib/data";
-import { Switch, IconField, CurrencyInput, CurrencyIconField, Panel, Btn, Field, TextInput, Select, Modal, DateInput, FileInput, Amount, ProgressBar, Chip, EmptyState, ThemeToggle, Avatar } from "./primitives";
+import { Switch, IconField, CurrencyInput, CurrencyIconField, Panel, Btn, Field, TextInput, Select, Modal, DateInput, FileInput, Amount, ProgressBar, Chip, EmptyState, ThemeToggle, Avatar, SwipeActions } from "./primitives";
 
 
 
@@ -72,7 +72,7 @@ export function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh 
         </div>
         <div className="flex items-center gap-3">
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
-          <button onClick={onLogout}><LogOut size={17} color={C.muted} /></button>
+          <button onClick={onLogout} aria-label="Sair da conta" title="Sair"><LogOut size={17} color={C.muted} /></button>
         </div>
       </div>
     </div>
@@ -491,7 +491,7 @@ export function GroupedExpenseRow({ parts, cardName, personName, viewerProfileId
   const allReconciled = contextMonth ? recInfos.every(Boolean) && recInfos.length > 0 : false;
   const primaryRecInfo = recInfos[0];
 
-  return (
+  const row = (
     <div className="animate-item-enter flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}`, opacity: allReconciled ? 0.6 : 1 }}>
       {onToggleReconciled && contextMonth && (
         <button onClick={() => onToggleReconciled(parts, contextMonth, !allReconciled)} className="shrink-0" title={allReconciled ? "Conferido" : "Marcar como conferido"}>
@@ -529,9 +529,17 @@ export function GroupedExpenseRow({ parts, cardName, personName, viewerProfileId
         </div>
       </div>
       <Amount value={total} size="text-sm" />
-      <button onClick={() => onEdit(editTarget)}><Pencil size={14} color={C.muted} /></button>
-      <button onClick={() => onDeleteGroup(parts)}><Trash2 size={14} color={C.rose} /></button>
+      <button onClick={() => onEdit(editTarget)} aria-label="Editar gasto" className="hidden lg:inline-flex"><Pencil size={14} color={C.muted} /></button>
+      <button onClick={() => onDeleteGroup(parts)} aria-label="Excluir gasto dividido" className="hidden lg:inline-flex"><Trash2 size={14} color={C.rose} /></button>
     </div>
+  );
+  return (
+    <SwipeActions actions={[
+      { icon: <Pencil size={16} color="#fff" />, label: "Editar gasto", onClick: () => onEdit(editTarget), background: C.gold },
+      { icon: <Trash2 size={16} color="#fff" />, label: "Excluir gasto dividido", onClick: () => onDeleteGroup(parts), background: C.rose },
+    ]}>
+      {row}
+    </SwipeActions>
   );
 }
 
@@ -543,7 +551,7 @@ export function ExpenseRow({ exp, cardName, personName, creatorName, contextMont
   const displayAmount = monthlyValue(exp, contextMonth, overrides);
   const recInfo = contextMonth && reconciliations ? reconciliations.get(`${exp.id}|${contextMonth}`) : null;
   const isReconciled = !!recInfo;
-  return (
+  const row = (
     <div className="animate-item-enter flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}`, opacity: isReconciled ? 0.6 : 1 }}>
       {selectable && (
         <button onClick={() => onToggleSelect(exp.id)} className="shrink-0">
@@ -577,9 +585,18 @@ export function ExpenseRow({ exp, cardName, personName, creatorName, contextMont
         </div>
       </div>
       <Amount value={displayAmount} size="text-sm" tone={exp.is_refund ? "green" : hasOverride ? "gold" : undefined} />
-      <button onClick={() => onEdit(exp)} className="ml-1"><Pencil size={14} color={hasOverride ? C.gold : C.muted} /></button>
-      <button onClick={() => onDelete(exp)} className="ml-1"><Trash2 size={14} color={C.rose} /></button>
+      <button onClick={() => onEdit(exp)} aria-label="Editar gasto" className="hidden lg:inline-flex ml-1"><Pencil size={14} color={hasOverride ? C.gold : C.muted} /></button>
+      <button onClick={() => onDelete(exp)} aria-label="Excluir gasto" className="hidden lg:inline-flex ml-1"><Trash2 size={14} color={C.rose} /></button>
     </div>
+  );
+  if (selectable) return row; // no modo de seleção em massa, tocar na linha marca/desmarca — desliza atrapalharia
+  return (
+    <SwipeActions actions={[
+      { icon: <Pencil size={16} color="#fff" />, label: "Editar gasto", onClick: () => onEdit(exp), background: C.gold },
+      { icon: <Trash2 size={16} color="#fff" />, label: "Excluir gasto", onClick: () => onDelete(exp), background: C.rose },
+    ]}>
+      {row}
+    </SwipeActions>
   );
 }
 
@@ -691,7 +708,7 @@ export function IncomeSection({ profile, data, refresh, scopeIds, scopeLabel }) 
               <span style={{ color: C.text }}>{inc.description}{inc.is_recurring && <Repeat size={11} className="inline ml-1.5" color={C.muted} />}</span>
               <div className="flex items-center gap-2.5">
                 <Amount value={inc.amount} size="text-xs" tone="green" />
-                <button onClick={() => handleDelete(inc)}><Trash2 size={13} color={C.rose} /></button>
+                <button onClick={() => handleDelete(inc)} aria-label="Excluir receita"><Trash2 size={13} color={C.rose} /></button>
               </div>
             </div>
           ))}
@@ -835,8 +852,8 @@ export function InvestmentCard({ inv, balance, transactions, profiles, viewerPro
         </div>
         {canManage && (
           <div className="flex gap-2 shrink-0">
-            <button onClick={() => onEdit(inv)}><Pencil size={14} color={C.muted} /></button>
-            <button onClick={() => onDelete(inv)}><Trash2 size={14} color={C.rose} /></button>
+            <button onClick={() => onEdit(inv)} aria-label="Editar caixinha"><Pencil size={14} color={C.muted} /></button>
+            <button onClick={() => onDelete(inv)} aria-label="Excluir caixinha"><Trash2 size={14} color={C.rose} /></button>
           </div>
         )}
       </div>
@@ -919,7 +936,7 @@ export function InvestmentCard({ inv, balance, transactions, profiles, viewerPro
                   <div className="text-[10px]" style={{ color: C.muted }}>{formatShortDate(t.transaction_date)}</div>
                 </div>
                 <Amount value={t.amount} size="text-xs" tone={t.type === "deposit" ? "green" : "rose"} />
-                <button onClick={() => onDeleteTx(t)}><Trash2 size={12} color={C.rose} /></button>
+                <button onClick={() => onDeleteTx(t)} aria-label="Excluir movimentação"><Trash2 size={12} color={C.rose} /></button>
               </div>
             ))
           )}
@@ -1041,7 +1058,7 @@ export function ImportCSVModal({ cards, userId, expenses, onImport, onClose }) {
       {!rows ? (
         <>
           <p className="text-xs mb-3" style={{ color: C.muted }}>Envie o arquivo CSV do extrato (data, descrição e valor). Depois você confere cada lançamento antes de importar de verdade.</p>
-          <FileInput accept=".csv,text/csv" label="Escolher CSV" onFileSelected={handleFile} />
+          <FileInput accept=".csv,text/csv" label="Escolher CSV" maxSizeMB={5} onFileSelected={handleFile} />
         </>
       ) : rows.length === 0 ? (
         <p className="text-sm" style={{ color: C.muted }}>Não consegui reconhecer nenhum lançamento nesse arquivo.</p>
@@ -1128,7 +1145,7 @@ export function PayInvoiceModal({ card, monthKey, invoiceTotal, alreadyPaid, pay
                   <div className="flex items-center gap-2">
                     <Amount value={p.amount} size="text-sm" tone="green" />
                     <button onClick={() => { setEditingPayment(p); setEditAmount(String(p.amount.toFixed(2))); }}><Pencil size={13} color={C.muted} /></button>
-                    <button onClick={() => onDeletePayment(p)}><Trash2 size={13} color={C.rose} /></button>
+                    <button onClick={() => onDeletePayment(p)} aria-label="Excluir pagamento"><Trash2 size={13} color={C.rose} /></button>
                   </div>
                 </div>
               )
@@ -1313,7 +1330,7 @@ export function RecurringReviewModal({ profile, data, isAdmin, refresh, onClose 
               </div>
               <div className="flex items-center gap-2.5 shrink-0">
                 <Amount value={monthlyValue(e)} size="text-xs" tone="rose" />
-                <button onClick={() => handleDeleteExpense(e)}><Trash2 size={14} color={C.rose} /></button>
+                <button onClick={() => handleDeleteExpense(e)} aria-label="Cancelar recorrência"><Trash2 size={14} color={C.rose} /></button>
               </div>
             </div>
           ))}
@@ -1325,7 +1342,7 @@ export function RecurringReviewModal({ profile, data, isAdmin, refresh, onClose 
               </div>
               <div className="flex items-center gap-2.5 shrink-0">
                 <Amount value={i.amount} size="text-xs" tone="green" />
-                <button onClick={() => handleDeleteIncome(i)}><Trash2 size={14} color={C.rose} /></button>
+                <button onClick={() => handleDeleteIncome(i)} aria-label="Cancelar receita recorrente"><Trash2 size={14} color={C.rose} /></button>
               </div>
             </div>
           ))}
@@ -1416,14 +1433,14 @@ export function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLo
           <div className="text-xs font-semibold truncate" style={{ color: C.text }}>{firstName(profile.name)}</div>
           {profile.role === "admin" && <div className="text-[10.5px]" style={{ color: C.muted }}>admin</div>}
         </div>
-        <button onClick={onLogout} className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all" style={{ border: `1px solid ${C.border}` }} title="Sair">
+        <button onClick={onLogout} aria-label="Sair da conta" className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all" style={{ border: `1px solid ${C.border}` }} title="Sair">
           <LogOut size={13} color={C.muted} />
         </button>
       </div>
       <div className="flex items-center gap-x-3 gap-y-1 flex-wrap px-1 text-[10px]" style={{ color: C.muted }}>
         <span><b style={{ color: C.text }}>G</b> gasto</span>
         <span><b style={{ color: C.text }}>R</b> receita</span>
-        <span><b style={{ color: C.text }}>1-4</b> navegar</span>
+        <span><b style={{ color: C.text }}>1-5</b> navegar</span>
       </div>
     </div>
   );
