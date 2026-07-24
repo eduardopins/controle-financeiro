@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { CreditCard, Plus, Pencil, Trash2, LayoutGrid, PieChart as PieIcon, ListChecks, Check, ChevronRight, Download, AlertTriangle, Search, TrendingUp, TrendingDown, DollarSign, CheckSquare, Share2, Percent, PiggyBank, History, BellRing, SlidersHorizontal, Target, X } from "lucide-react";
 import { C, CATEGORIES, HERO_GRADIENT, FALLBACK_CAT_COLORS } from "./lib/constants";
 import { brl, firstName, sortByName, currentMonthKey, monthLabel, addMonthsToKey, last6Months, openInvoiceMonth, isDueIn, monthlyValue, overridesMap, isRemovedForMonth, toCSV, toCSVAnnual, downloadCSV, isIncomeDueIn, nextInvoiceProjection, categoryComparison, downloadJSON, anyCardAlert, accessibleCards, periodPresetLabel, incomeMonthlyValue, investmentBalance, estimatedYieldToDate, investmentBalanceUpTo, investmentMonthlyRate, invoiceMonths, invoiceStatusInfo, getCategoryColor, allCategoryNames, shareSummaryImage, compactNumber, personColorFor, monthKeysForPeriod, categoryTotalsForMonths, paidForInvoice, netUsedForCard, invoiceDueDate, invoicePaymentStatus, reconciliationMap, formatShortDate, buildDisplayRows } from "./lib/domain";
 import { friendlyError, guardedHandler } from "./lib/errors";
 import { saveInvoicePayment, updateInvoicePayment, deleteInvoicePayment, saveExpenseOverride, removeExpenseForMonth, deleteExpenseOverride, syncPluggyCards, dismissUnmatchedTransaction, syncPluggyTransactions, applyPluggyValues, saveCard, deleteCard, logActivity, saveExpense, deleteExpense, restoreExpense, permanentlyDeleteExpense, setExpenseReconciled, saveBudget, deleteBudget, saveIncome, saveCustomCategory, saveInvestment, deleteInvestment, saveInvestmentTransaction, deleteInvestmentTransaction, bulkUpdateCategory } from "./lib/data";
 import { useCurrentCDI, useBillAlerts, useBudgetAlerts, useWeeklyDigest, usePersistentTab, useIsDesktop, useKeyboardShortcuts } from "./hooks";
-import { HeroPanel, CurrencyInput, Panel, Btn, Field, TextInput, Select, Amount, ProgressBar, Chip, ScreenHeader, EmptyState, BottomNav, Avatar, ReportTabs, UpcomingBillsPanel, FloatingAddButton, ScrollToTopButton } from "./components/primitives";
+import { HeroPanel, CurrencyInput, Panel, Btn, Field, TextInput, Select, Amount, ProgressBar, Chip, ScreenHeader, EmptyState, BottomNav, Avatar, UpcomingBillsPanel, FloatingAddButton, ScrollToTopButton } from "./components/primitives";
 import { TopBar, ExpenseForm, CardForm, CardWidget, GroupedExpenseRow, ExpenseRow, IncomeForm, IncomeSection, InvestmentForm, InvestmentTransactionForm, InvestmentCard, InvestmentSimulator, ImportCSVModal, PayInvoiceModal, ChoosePayCardModal, ScopeChoiceModal, MonthOverrideModal, TrashModal, MonthlyReviewBanner, RecurringReviewModal, RecentReconciliationBanner, Sidebar } from "./components/domain";
 import { useToast } from "./components/Toast";
 
@@ -63,58 +62,26 @@ export function InvestmentsScreen({ profile, data, refresh, isAdmin }) {
           {myInvestments.length > 1 && totalBalance > 0 && (
             <Panel className="mb-4">
               <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Composição da carteira</h4>
-              <div className="flex items-center gap-4">
-                <ResponsiveContainer width={110} height={110}>
-                  <PieChart>
-                    <Pie data={myInvestments.map((inv, i) => ({ name: inv.name, value: Math.max(investmentBalance(inv.id, data.investmentTransactions), 0) })).filter((d) => d.value > 0)}
-                      dataKey="value" nameKey="name" innerRadius={32} outerRadius={52} paddingAngle={2}>
-                      {myInvestments.map((inv, i) => <Cell key={inv.id} fill={FALLBACK_CAT_COLORS[i % FALLBACK_CAT_COLORS.length]} />)}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="flex-1 space-y-1.5">
-                  {myInvestments.map((inv, i) => {
-                    const bal = Math.max(investmentBalance(inv.id, data.investmentTransactions), 0);
-                    const pct = totalBalance > 0 ? (bal / totalBalance) * 100 : 0;
-                    return bal > 0 && (
-                      <div key={inv.id} className="flex items-center gap-2 text-xs">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: FALLBACK_CAT_COLORS[i % FALLBACK_CAT_COLORS.length] }} />
-                        <span className="truncate flex-1" style={{ color: C.text }}>{inv.name}</span>
-                        <span style={{ color: C.muted }}>{pct.toFixed(0)}%</span>
-                      </div>
-                    );
-                  })}
-                </div>
+              <div className="flex h-2.5 rounded-full overflow-hidden mb-3" style={{ background: C.bgSoft }}>
+                {myInvestments.map((inv, i) => {
+                  const bal = Math.max(investmentBalance(inv.id, data.investmentTransactions), 0);
+                  const pct = totalBalance > 0 ? (bal / totalBalance) * 100 : 0;
+                  return bal > 0 && <div key={inv.id} style={{ width: `${pct}%`, background: FALLBACK_CAT_COLORS[i % FALLBACK_CAT_COLORS.length] }} />;
+                })}
               </div>
-            </Panel>
-          )}
-
-          {myInvestments.length > 0 && (
-            <Panel className="mb-4">
-              <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Aporte vs. rendimento (últimos 6 meses)</h4>
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={last6Months().map((mk) => {
-                  const prevMk = addMonthsToKey(mk, -1);
-                  let contrib = 0, yieldDelta = 0;
-                  myInvestments.forEach((inv) => {
-                    const balThis = investmentBalanceUpTo(inv.id, data.investmentTransactions, mk);
-                    const balPrev = investmentBalanceUpTo(inv.id, data.investmentTransactions, prevMk);
-                    const rate = investmentMonthlyRate(inv, cdi);
-                    const yThis = rate != null ? estimatedYieldToDate(inv.id, data.investmentTransactions, rate, mk) : 0;
-                    const yPrev = rate != null ? estimatedYieldToDate(inv.id, data.investmentTransactions, rate, prevMk) : 0;
-                    yieldDelta += yThis - yPrev;
-                    contrib += (balThis - balPrev) - (yThis - yPrev);
-                  });
-                  return { month: monthLabel(mk), aporte: Math.max(contrib, 0), rendimento: Math.max(yieldDelta, 0) };
-                })} barGap={4}>
-                  <XAxis dataKey="month" stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} />
-                  <YAxis stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} tickFormatter={compactNumber} width={38} />
-                  <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="aporte" name="Aporte" fill={C.gold} radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="rendimento" name="Rendimento" fill={C.green} radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="space-y-1.5">
+                {myInvestments.map((inv, i) => {
+                  const bal = Math.max(investmentBalance(inv.id, data.investmentTransactions), 0);
+                  const pct = totalBalance > 0 ? (bal / totalBalance) * 100 : 0;
+                  return bal > 0 && (
+                    <div key={inv.id} className="flex items-center gap-2 text-xs">
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: FALLBACK_CAT_COLORS[i % FALLBACK_CAT_COLORS.length] }} />
+                      <span className="truncate flex-1" style={{ color: C.text }}>{inv.name}</span>
+                      <span style={{ color: C.muted }}>{pct.toFixed(0)}%</span>
+                    </div>
+                  );
+                })}
+              </div>
             </Panel>
           )}
 
@@ -435,6 +402,22 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
         >
           <SlidersHorizontal size={15} color={filtersActive ? "var(--gold-contrast)" : C.muted} />
         </button>
+        <div className="relative shrink-0">
+          <button onClick={() => setShowExportMenu((v) => !v)} aria-label="Importar ou exportar" title="Importar / exportar"
+            className="w-11 h-11 rounded-lg flex items-center justify-center" style={{ background: C.bgSoft, border: `1px solid ${C.border}` }}>
+            <Download size={15} color={C.muted} />
+          </button>
+          {showExportMenu && (
+            <div className="absolute right-0 mt-1.5 rounded-xl overflow-hidden z-20" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
+              <button onClick={() => { setShowExportMenu(false); setShowImportCSV(true); }} disabled={myCards.length === 0}
+                className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap disabled:opacity-40" style={{ color: C.text }}>Importar extrato do banco (CSV)</button>
+              <button onClick={() => { downloadCSV(toCSV(filtered, cardName, personName), `gastos-${currentMonthKey()}.csv`); setShowExportMenu(false); }}
+                className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>Exportar planilha (CSV)</button>
+              <button onClick={() => { exportBackup(); setShowExportMenu(false); }}
+                className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>Exportar backup (JSON)</button>
+            </div>
+          )}
+        </div>
       </div>
       {/* No mobile empilha 2x2; no desktop (lg:) mostra tudo numa linha só, já que
           tem espaço horizontal sobrando — o mesmo painel se comporta diferente
@@ -464,22 +447,6 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
           )}
         </div>
       )}
-
-      <div className="flex justify-end gap-2 mb-4">
-        <div className="relative">
-          <Btn variant="ghost" onClick={() => setShowExportMenu((v) => !v)}><Download size={16} /> Importar / exportar</Btn>
-          {showExportMenu && (
-            <div className="absolute right-0 mt-1.5 rounded-xl overflow-hidden z-20" style={{ background: C.surfaceAlt, border: `1px solid ${C.borderStrong}`, boxShadow: C.shadow }}>
-              <button onClick={() => { setShowExportMenu(false); setShowImportCSV(true); }} disabled={myCards.length === 0}
-                className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap disabled:opacity-40" style={{ color: C.text }}>Importar extrato do banco (CSV)</button>
-              <button onClick={() => { downloadCSV(toCSV(filtered, cardName, personName), `gastos-${currentMonthKey()}.csv`); setShowExportMenu(false); }}
-                className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>Exportar planilha (CSV)</button>
-              <button onClick={() => { exportBackup(); setShowExportMenu(false); }}
-                className="block w-full text-left px-4 py-2.5 text-xs whitespace-nowrap" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>Exportar backup (JSON)</button>
-            </div>
-          )}
-        </div>
-      </div>
       {/* "Novo gasto" foi removido daqui: no celular o botão flutuante já cobre isso em
           qualquer aba, e no computador os botões "Gasto"/"Receita" da barra lateral fazem
           o mesmo — manter os dois aqui era um terceiro caminho pra mesma ação. */}
@@ -546,7 +513,7 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
               </div>
             </div>
 
-            <div className="relative p-5 mb-4" style={{ background: C.goldDeep, borderRadius: 6, boxShadow: C.shadow }}>
+            <div className="relative p-5 mb-4" style={{ background: `radial-gradient(130% 150% at 12% -10%, rgba(255,255,255,0.07), transparent 55%), ${C.goldDeep}`, borderRadius: 6, boxShadow: C.shadow }}>
               <div style={{ position: "absolute", top: 0, right: 0, width: 20, height: 20, background: "linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.28) 50%)", borderRadius: "0 6px 0 0" }} />
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
@@ -558,7 +525,6 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
                     background: "transparent",
                     color: paymentStatus.tone === "green" ? "var(--green)" : paymentStatus.tone === "rose" ? "var(--rose)" : paymentStatus.tone === "amber" || paymentStatus.tone === "gold" ? "var(--amber)" : "rgba(244,241,233,0.6)",
                     border: `1.5px solid ${paymentStatus.tone === "green" ? "var(--green)" : paymentStatus.tone === "rose" ? "var(--rose)" : paymentStatus.tone === "amber" || paymentStatus.tone === "gold" ? "var(--amber)" : "rgba(244,241,233,0.4)"}`,
-                    transform: "rotate(-2deg)",
                   }}>
                     {paymentStatus.label}
                   </span>
@@ -1003,11 +969,39 @@ export function AdminCards({ data, refresh, embedded, profile }) {
   );
 }
 
+function ActivityLogScreen({ data }) {
+  const personName = (id) => firstName((data.profiles || []).find((p) => p.id === id)?.name) || "-";
+  const personProfile = (id) => (data.profiles || []).find((p) => p.id === id);
+  const log = data.activityLog || [];
+  return (
+    <Panel>
+      {log.length === 0 ? (
+        <EmptyState icon={<History size={28} />} text="Nenhuma atividade registrada ainda." />
+      ) : (
+        <div className="space-y-3.5">
+          {log.map((a) => (
+            <div key={a.id} className="flex items-start gap-3 pb-3.5" style={{ borderBottom: `1px solid ${C.border}` }}>
+              <Avatar profile={personProfile(a.profile_id)} size={28} />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm" style={{ color: C.text }}>{a.description}</div>
+                <div className="text-[11px]" style={{ color: C.muted }}>
+                  {personName(a.profile_id)} · {formatShortDate(a.created_at.slice(0, 10))} às {a.created_at.slice(11, 16)}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 function AppShell({ profile, data, refresh, onLogout, theme, onToggleTheme, isAdmin }) {
   const [tab, setTab] = usePersistentTab(isAdmin ? "tab-admin" : "tab-member", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
   const [showCardsManagement, setShowCardsManagement] = useState(false);
+  const [showActivityLog, setShowActivityLog] = useState(false);
   const myCards = isAdmin ? data.cards : accessibleCards(data, profile.id);
   useBillAlerts(myCards, data.expenses, data.invoicePayments);
   useBudgetAlerts(profile, data);
@@ -1034,10 +1028,10 @@ function AppShell({ profile, data, refresh, onLogout, theme, onToggleTheme, isAd
   const OverviewScreen = isAdmin ? AdminOverview : MemberOverview;
   return (
     <div className="lg:flex lg:items-start">
-      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
+      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} isAdmin={isAdmin} onShowActivity={() => setShowActivityLog(true)} />
       <div className="lg:flex-1 lg:min-w-0">
-        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} /></div>
-        <div key={tab}>
+        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} isAdmin={isAdmin} onShowActivity={() => setShowActivityLog(true)} /></div>
+        <div key={tab} className="animate-tab-enter">
           {tab === "overview" && <OverviewScreen profile={profile} data={data} refresh={refresh} onManageCards={() => setShowCardsManagement(true)} />}
           {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={isAdmin} />}
           {tab === "goals" && <GoalsScreen profile={profile} data={data} refresh={refresh} />}
@@ -1059,6 +1053,19 @@ function AppShell({ profile, data, refresh, onLogout, theme, onToggleTheme, isAd
             </div>
             <div className="max-w-3xl mx-auto px-4 py-5 pb-10 lg:max-w-6xl lg:px-10 lg:pt-8">
               <AdminCards data={data} refresh={refresh} embedded profile={profile} />
+            </div>
+          </div>
+        )}
+        {showActivityLog && (
+          <div className="fixed inset-0 z-40 overflow-y-auto animate-tab-enter" style={{ background: C.bg }}>
+            <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3.5 lg:px-10" style={{ background: "var(--bg)", borderBottom: `1px solid ${C.border}`, paddingTop: "env(safe-area-inset-top, 0px)" }}>
+              <button onClick={() => setShowActivityLog(false)} className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ border: `1px solid ${C.border}` }}>
+                <X size={15} color={C.muted} />
+              </button>
+              <span className="text-sm font-semibold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>Atividade recente</span>
+            </div>
+            <div className="max-w-3xl mx-auto px-4 py-5 pb-10 lg:max-w-6xl lg:px-10 lg:pt-8">
+              <ActivityLogScreen data={data} />
             </div>
           </div>
         )}

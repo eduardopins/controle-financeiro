@@ -1,49 +1,16 @@
 import React, { useState, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, LabelList } from "recharts";
-import { ChevronRight, Download, TrendingUp, TrendingDown, PieChart as PieIcon, History } from "lucide-react";
+import { ChevronRight, Download, TrendingUp, TrendingDown, PieChart as PieIcon } from "lucide-react";
 import { C } from "../lib/constants";
 import { brl, firstName, sortByName, monthLabel, addMonthsToKey, last6Months, openInvoiceMonth, isDueIn, monthlyValue, toCSVAnnual, downloadCSV, isIncomeDueIn, categoryComparison, accessibleCards, periodPresetLabel, incomeMonthlyValue, investmentBalanceUpTo, getCategoryColor, allCategoryNames, compactNumber, personColorFor, monthKeysForPeriod, categoryTotalsForMonths, formatShortDate } from "../lib/domain";
 import { useIsDesktop } from "../hooks";
-import { HeroPanel, Panel, Amount, ScreenHeader, EmptyState, Avatar, ReportTabs } from "../components/primitives";
-
-// Só usada aqui dentro (na sub-aba "Atividade" dos Relatórios), por isso mora
-// neste arquivo em vez de screens.jsx — evita um import circular de volta pra
-// quem carrega este componente sob demanda.
-function ActivityLogScreen({ data, embedded }) {
-  const personName = (id) => firstName((data.profiles || []).find((p) => p.id === id)?.name) || "-";
-  const personProfile = (id) => (data.profiles || []).find((p) => p.id === id);
-  const log = data.activityLog || [];
-  return (
-    <div className={embedded ? "" : "max-w-3xl mx-auto px-4 py-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16"}>
-      <Panel>
-        {log.length === 0 ? (
-          <EmptyState icon={<History size={28} />} text="Nenhuma atividade registrada ainda." />
-        ) : (
-          <div className="space-y-3.5">
-            {log.map((a) => (
-              <div key={a.id} className="flex items-start gap-3 pb-3.5" style={{ borderBottom: `1px solid ${C.border}` }}>
-                <Avatar profile={personProfile(a.profile_id)} size={28} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm" style={{ color: C.text }}>{a.description}</div>
-                  <div className="text-[11px]" style={{ color: C.muted }}>
-                    {personName(a.profile_id)} · {formatShortDate(a.created_at.slice(0, 10))} às {a.created_at.slice(11, 16)}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Panel>
-    </div>
-  );
-}
+import { HeroPanel, Panel, Amount, ScreenHeader, EmptyState, Avatar } from "../components/primitives";
 
 export default function ReportsScreen({ profile, data, refresh, isAdmin }) {
   const isDesktop = useIsDesktop();
   const relevantCards = isAdmin ? data.cards : accessibleCards(data, profile.id);
   const now = openInvoiceMonth(relevantCards);
   const prevMonth = addMonthsToKey(now, -1);
-  const [view, setView] = useState("charts");
   const [period, setPeriod] = useState("month");
   const [customRange, setCustomRange] = useState({ start: "", end: "" });
   const [selectedIds, setSelectedIds] = useState([]);
@@ -106,16 +73,6 @@ export default function ReportsScreen({ profile, data, refresh, isAdmin }) {
   const heroLabel = period === "month" ? `Total de ${monthLabel(now)}` : `Total (${periodPresetLabel(period)})`;
   const scopeLabel = !isAdmin ? "Seu relatório" : selectedIds.length === 0 ? "Todos" : scopeProfiles.map((p) => firstName(p.name)).join(" e ");
 
-  if (view === "activity" && isAdmin) {
-    return (
-      <div className="max-w-3xl mx-auto px-4 pt-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8">
-        <ScreenHeader title="Relatórios" subtitle={isAdmin ? "Panorama financeiro" : "Seu panorama financeiro"} />
-        <ReportTabs view={view} setView={setView} isAdmin={isAdmin} />
-        <ActivityLogScreen data={data} embedded />
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-3xl mx-auto px-4 py-5 pb-28 space-y-4 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16">
       <div className="flex items-center justify-between">
@@ -154,7 +111,6 @@ export default function ReportsScreen({ profile, data, refresh, isAdmin }) {
         </table>
         <p style={{ fontSize: 10, color: "#999", marginTop: 24 }}>Gerado em {formatShortDate(new Date().toISOString().slice(0, 10))} pelo Controle Financeiro.</p>
       </div>
-      <ReportTabs view={view} setView={setView} isAdmin={isAdmin} />
       <HeroPanel label={heroLabel} value={totalPeriod} />
 
       {isAdmin && (
