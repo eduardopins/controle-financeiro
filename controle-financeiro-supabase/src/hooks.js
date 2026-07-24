@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { THEME_CSS } from "./lib/constants";
-import { currentMonthKey, isDueIn, monthlyValue, billingInfo, netUsedForCard } from "./lib/domain";
+import { currentMonthKey, isDueIn, monthlyValue, billingInfo, netUsedForCard, brl } from "./lib/domain";
 import { fetchCurrentCDI } from "./lib/data";
 
 
@@ -24,6 +24,43 @@ export function useThemeStyles() {
     document.head.appendChild(style);
     return () => document.head.removeChild(style);
   }, []);
+}
+
+/* ---------------------------------- animação de números ---------------------------------- */
+
+const prefersReducedMotion = () =>
+  typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+// Anima um número de "de onde estava" até `value` num intervalo curto (ease-out),
+// em vez do valor simplesmente trocar de uma vez. Some para quem prefere menos
+// movimento (prefers-reduced-motion), e não anima na primeira renderização —
+// só quando o valor muda de fato.
+export function useCountUp(value, { duration = 700 } = {}) {
+  const target = Number.isFinite(value) ? value : 0;
+  const [display, setDisplay] = useState(target);
+  const fromRef = useRef(target);
+  const rafRef = useRef(null);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; fromRef.current = target; setDisplay(target); return; }
+    if (prefersReducedMotion() || fromRef.current === target) { fromRef.current = target; setDisplay(target); return; }
+    const from = fromRef.current;
+    const start = performance.now();
+    cancelAnimationFrame(rafRef.current);
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3); // ease-out cúbico
+      setDisplay(from + (target - from) * eased);
+      if (t < 1) rafRef.current = requestAnimationFrame(tick);
+      else fromRef.current = target;
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, duration]);
+
+  return display;
 }
 
 export function useTheme() {
@@ -110,13 +147,48 @@ export function useBudgetAlerts(profile, data) {
     myBudgets.forEach((b) => {
       const spent = dueNow.filter((e) => e.category === b.category).reduce((s, e) => s + monthlyValue(e), 0);
       const pct = b.monthly_limit ? (spent / b.monthly_limit) * 100 : 0;
-      const key = `notif-goal-${b.id}-${today}`;
-      if (pct >= 100 && !localStorage.getItem(key)) {
+      const keyOver = `notif-goal-${b.id}-${today}`;
+      const keyNear = `notif-goal-near-${b.id}-${today}`;
+      if (pct >= 100 && !localStorage.getItem(keyOver)) {
         showLocalNotification("Meta estourada", `${b.category}: você já passou da meta (${pct.toFixed(0)}%).`);
-        localStorage.setItem(key, "1");
+        localStorage.setItem(keyOver, "1");
+      } else if (pct >= 80 && pct < 100 && !localStorage.getItem(keyNear) && !localStorage.getItem(keyOver)) {
+        // aviso antecipado, antes de estourar de fato — só uma vez por dia, e só se ainda não tiver avisado que estourou
+        showLocalNotification("Meta quase no limite", `${b.category}: você já usou ${pct.toFixed(0)}% da meta deste mês.`);
+        localStorage.setItem(keyNear, "1");
       }
     });
   }, [profile.id, data.budgets, data.expenses]);
+}
+
+// Uma vez por semana (no mínimo 7 dias desde a última vez), avisa quanto a
+// pessoa gastou nos últimos 7 dias e compara com a semana anterior. Não avisa
+// se não houve gasto nenhum na semana (evita notificação vazia/inútil).
+export function useWeeklyDigest(profile, data) {
+  useEffect(() => {
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    const key = `weekly-digest-last-${profile.id}`;
+    const last = Number(localStorage.getItem(key) || 0);
+    const now = Date.now();
+    if (last && now - last < 7 * 86400000) return;
+    const weekAgo = now - 7 * 86400000;
+    const twoWeeksAgo = now - 14 * 86400000;
+    const myExpenses = data.expenses.filter((e) => e.profile_id === profile.id && !e.is_refund);
+    const sumInRange = (from, to) => myExpenses
+      .filter((e) => { const t = new Date(`${e.purchase_date}T00:00:00`).getTime(); return t >= from && t < to; })
+      .reduce((s, e) => s + Math.abs(e.total_amount), 0);
+    const thisWeek = sumInRange(weekAgo, now + 1);
+    if (thisWeek <= 0) { localStorage.setItem(key, String(now)); return; }
+    const lastWeek = sumInRange(twoWeeksAgo, weekAgo);
+    let diffText = "";
+    if (lastWeek > 0) {
+      const diff = ((thisWeek - lastWeek) / lastWeek) * 100;
+      diffText = diff > 0 ? ` (${diff.toFixed(0)}% a mais que a semana passada)` : ` (${Math.abs(diff).toFixed(0)}% a menos que a semana passada)`;
+    }
+    showLocalNotification("Resumo da semana", `Você gastou ${brl(thisWeek)} nos últimos 7 dias${diffText}.`);
+    localStorage.setItem(key, String(now));
+  }, [profile.id, data.expenses]);
 }
 
 export function usePersistentTab(key, defaultValue) {

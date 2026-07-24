@@ -1,13 +1,20 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, LabelList } from "recharts";
-import { CreditCard, Plus, Pencil, Trash2, LayoutGrid, PieChart as PieIcon, ListChecks, Check, ChevronRight, Download, AlertTriangle, Search, TrendingUp, TrendingDown, DollarSign, CheckSquare, Share2, Percent, PiggyBank, History, BellRing } from "lucide-react";
+import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { CreditCard, Plus, Pencil, Trash2, LayoutGrid, PieChart as PieIcon, ListChecks, Check, ChevronRight, Download, AlertTriangle, Search, TrendingUp, TrendingDown, DollarSign, CheckSquare, Share2, Percent, PiggyBank, History, BellRing, SlidersHorizontal } from "lucide-react";
 import { C, CATEGORIES, HERO_GRADIENT, FALLBACK_CAT_COLORS } from "./lib/constants";
 import { brl, firstName, sortByName, currentMonthKey, monthLabel, addMonthsToKey, last6Months, openInvoiceMonth, isDueIn, monthlyValue, overridesMap, isRemovedForMonth, toCSV, toCSVAnnual, downloadCSV, isIncomeDueIn, nextInvoiceProjection, categoryComparison, downloadJSON, anyCardAlert, accessibleCards, periodPresetLabel, incomeMonthlyValue, investmentBalance, estimatedYieldToDate, investmentBalanceUpTo, investmentMonthlyRate, invoiceMonths, invoiceStatusInfo, getCategoryColor, allCategoryNames, shareSummaryImage, compactNumber, personColorFor, monthKeysForPeriod, categoryTotalsForMonths, paidForInvoice, netUsedForCard, invoiceDueDate, invoicePaymentStatus, reconciliationMap, formatShortDate, buildDisplayRows } from "./lib/domain";
 import { friendlyError, guardedHandler } from "./lib/errors";
 import { saveInvoicePayment, updateInvoicePayment, deleteInvoicePayment, saveExpenseOverride, removeExpenseForMonth, deleteExpenseOverride, syncPluggyCards, dismissUnmatchedTransaction, syncPluggyTransactions, applyPluggyValues, saveCard, deleteCard, logActivity, saveExpense, deleteExpense, restoreExpense, permanentlyDeleteExpense, setExpenseReconciled, saveBudget, deleteBudget, saveIncome, saveCustomCategory, saveInvestment, deleteInvestment, saveInvestmentTransaction, deleteInvestmentTransaction, bulkUpdateCategory } from "./lib/data";
-import { useCurrentCDI, useBillAlerts, useBudgetAlerts, usePersistentTab, useIsDesktop, useKeyboardShortcuts } from "./hooks";
-import { HeroPanel, CurrencyInput, Panel, Btn, Field, TextInput, Select, Amount, ProgressBar, Chip, ScreenHeader, EmptyState, BottomNav, Avatar, ReportTabs, UpcomingBillsPanel, FloatingAddButton } from "./components/primitives";
+import { useCurrentCDI, useBillAlerts, useBudgetAlerts, useWeeklyDigest, usePersistentTab, useIsDesktop, useKeyboardShortcuts } from "./hooks";
+import { HeroPanel, CurrencyInput, Panel, Btn, Field, TextInput, Select, Amount, ProgressBar, Chip, ScreenHeader, EmptyState, BottomNav, Avatar, ReportTabs, UpcomingBillsPanel, SplitBalancePanel, FloatingAddButton } from "./components/primitives";
 import { TopBar, ExpenseForm, CardForm, CardWidget, GroupedExpenseRow, ExpenseRow, IncomeForm, IncomeSection, InvestmentForm, InvestmentTransactionForm, InvestmentCard, InvestmentSimulator, ImportCSVModal, PayInvoiceModal, ChoosePayCardModal, ScopeChoiceModal, MonthOverrideModal, TrashModal, MonthlyReviewBanner, RecurringReviewModal, RecentReconciliationBanner, Sidebar } from "./components/domain";
+import { useToast } from "./components/Toast";
+
+// Carregado sob demanda: só baixa o código dos relatórios quando a aba é aberta.
+const ReportsScreen = lazy(() => import("./screens/ReportsScreen"));
+const ReportsScreenFallback = () => (
+  <div className="max-w-3xl mx-auto px-4 py-10 text-center text-sm" style={{ color: C.muted }}>Carregando relatórios...</div>
+);
 
 
 
@@ -144,8 +151,10 @@ export function GoalsScreen({ profile, data, refresh, embedded }) {
   const [editingCat, setEditingCat] = useState(null);
   const [value, setValue] = useState("");
 
+  const [err, setErr] = useState("");
   const submit = guardedHandler(async () => {
-    if (!value) return;
+    if (!(parseFloat(value) > 0)) { setErr("Informe um valor válido, maior que zero."); return; }
+    setErr("");
     await saveBudget(profile.id, editingCat, parseFloat(value));
     setEditingCat(null); setValue("");
     await refresh();
@@ -174,16 +183,19 @@ export function GoalsScreen({ profile, data, refresh, embedded }) {
                 </div>
                 {!isEditing && (
                   <div className="flex items-center gap-3">
-                    <button onClick={() => { setEditingCat(cat); setValue(budget?.monthly_limit || ""); }}><Pencil size={14} color={C.muted} /></button>
+                    <button onClick={() => { setEditingCat(cat); setValue(budget?.monthly_limit || ""); setErr(""); }}><Pencil size={14} color={C.muted} /></button>
                     {budget && <button onClick={() => remove(budget)}><Trash2 size={14} color={C.rose} /></button>}
                   </div>
                 )}
               </div>
 
               {isEditing ? (
-                <div className="flex gap-2 items-center">
-                  <CurrencyInput value={value} onChange={setValue} placeholder="Valor da meta (R$)" />
-                  <Btn onClick={submit}><Check size={14} /></Btn>
+                <div>
+                  <div className="flex gap-2 items-center">
+                    <CurrencyInput value={value} onChange={setValue} placeholder="Valor da meta (R$)" />
+                    <Btn onClick={submit}><Check size={14} /></Btn>
+                  </div>
+                  {err && <p className="text-xs mt-1.5" style={{ color: C.rose }}>{err}</p>}
                 </div>
               ) : budget ? (
                 <>
@@ -192,6 +204,11 @@ export function GoalsScreen({ profile, data, refresh, embedded }) {
                     <span style={{ color: C.text }}>{brl(spent)} <span style={{ color: C.muted }}>de {brl(budget.monthly_limit)}</span></span>
                   </div>
                   <ProgressBar pct={pct} tone={pct > 100 ? "rose" : pct > 80 ? "gold" : "green"} />
+                  <div className="flex items-center justify-between mt-1.5">
+                    <span className="text-[11px]" style={{ color: pct > 100 ? C.rose : pct > 80 ? C.amber : C.muted }}>
+                      {pct > 100 ? `${(pct - 100).toFixed(0)}% acima da meta` : pct > 80 ? "Quase no limite" : `${pct.toFixed(0)}% usado`}
+                    </span>
+                  </div>
                 </>
               ) : (
                 <p className="text-xs" style={{ color: C.muted }}>Nenhuma meta definida para esta categoria.</p>
@@ -210,6 +227,9 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [query, setQuery] = useState("");
+  const [minValue, setMinValue] = useState("");
+  const [maxValue, setMaxValue] = useState("");
+  const [showValueFilter, setShowValueFilter] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState([]);
   const [bulkCategory, setBulkCategory] = useState(CATEGORIES[0]);
@@ -242,14 +262,18 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
 
   const cardName = (id) => id ? (data.cards.find((c) => c.id === id)?.name || "-") : "Dinheiro/Pix";
   const personName = (id) => firstName(data.profiles.find((u) => u.id === id)?.name) || "-";
-  const searching = query.trim().length > 0;
+  const searching = query.trim().length > 0 || !!minValue || !!maxValue;
 
   const baseExpenses = useMemo(() => isAdmin ? data.expenses : data.expenses.filter((e) => e.profile_id === profile.id), [isAdmin, data.expenses, profile.id]);
+  const minNum = parseFloat(minValue);
+  const maxNum = parseFloat(maxValue);
   const filtered = useMemo(() => baseExpenses
     .filter((e) => !isAdmin || filterPerson === "all" || e.profile_id === filterPerson)
     .filter((e) => filterCard === "all" || e.card_id === filterCard)
     .filter((e) => e.description.toLowerCase().includes(query.trim().toLowerCase()))
-    .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date)), [baseExpenses, isAdmin, filterPerson, filterCard, query]);
+    .filter((e) => !(minValue && Number.isFinite(minNum)) || Math.abs(e.total_amount) >= minNum)
+    .filter((e) => !(maxValue && Number.isFinite(maxNum)) || Math.abs(e.total_amount) <= maxNum)
+    .sort((a, b) => b.purchase_date.localeCompare(a.purchase_date)), [baseExpenses, isAdmin, filterPerson, filterCard, query, minValue, maxValue, minNum, maxNum]);
 
   const myCards = isAdmin ? data.cards : accessibleCards(data, profile.id);
 
@@ -262,11 +286,16 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
     await logActivity(profile.id, isEdit ? "editou" : "criou", `${isEdit ? "Editou" : "Lançou"} o gasto "${desc}"`);
   };
   const [showTrash, setShowTrash] = useState(false);
+  const { showToast } = useToast();
   const handleDelete = guardedHandler(async (exp) => {
-    if (!window.confirm("Excluir este gasto? Ele fica na lixeira por 30 dias, dá pra restaurar depois.")) return;
     await deleteExpense(exp);
     await refresh();
     await logActivity(profile.id, "excluiu", `Excluiu o gasto "${exp.description}"`);
+    showToast({
+      message: `Gasto "${exp.description}" excluído.`,
+      actionLabel: "Desfazer",
+      onAction: guardedHandler(async () => { await restoreExpense(exp); await refresh(); }, "restaurar o gasto"),
+    });
   }, "excluir o gasto");
   const handleRestore = guardedHandler(async (exp) => {
     await restoreExpense(exp);
@@ -312,10 +341,14 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
     else handleDelete(exp);
   };
   const handleDeleteGroup = guardedHandler(async (parts) => {
-    if (!window.confirm("Excluir este gasto dividido? As duas partes serão removidas.")) return;
     for (const p of parts) await deleteExpense(p);
     await refresh();
     await logActivity(profile.id, "excluiu", `Excluiu o gasto dividido "${parts[0]?.description}"`);
+    showToast({
+      message: `Gasto dividido "${parts[0]?.description}" excluído.`,
+      actionLabel: "Desfazer",
+      onAction: guardedHandler(async () => { for (const p of parts) await restoreExpense(p); await refresh(); }, "restaurar o gasto"),
+    });
   }, "excluir o gasto dividido");
   const toggleSelect = (id) => setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   const applyBulk = async () => {
@@ -428,10 +461,29 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
         </div>
       )}
 
-      <div className="relative mb-3">
-        <Search size={15} color={C.muted} className="absolute left-3 top-1/2 -translate-y-1/2" />
-        <TextInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar em todos os meses..." style={{ paddingLeft: 34 }} />
+      <div className="relative mb-3 flex gap-2">
+        <div className="relative flex-1">
+          <Search size={15} color={C.muted} className="absolute left-3 top-1/2 -translate-y-1/2" />
+          <TextInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar em todos os meses..." style={{ paddingLeft: 34 }} />
+        </div>
+        <button
+          onClick={() => setShowValueFilter((v) => !v)}
+          className="w-11 h-11 rounded-lg flex items-center justify-center shrink-0"
+          style={{ background: showValueFilter || minValue || maxValue ? C.gold : C.bgSoft, border: `1px solid ${showValueFilter || minValue || maxValue ? C.gold : C.border}` }}
+          title="Filtrar por valor"
+        >
+          <SlidersHorizontal size={15} color={showValueFilter || minValue || maxValue ? "var(--gold-contrast)" : C.muted} />
+        </button>
       </div>
+      {showValueFilter && (
+        <div className="flex gap-2 mb-3 animate-item-enter">
+          <Field label="Valor mínimo"><CurrencyInput value={minValue} onChange={setMinValue} /></Field>
+          <Field label="Valor máximo"><CurrencyInput value={maxValue} onChange={setMaxValue} /></Field>
+          {(minValue || maxValue) && (
+            <button onClick={() => { setMinValue(""); setMaxValue(""); }} className="text-xs shrink-0 self-start mt-6" style={{ color: C.muted }}>Limpar</button>
+          )}
+        </div>
+      )}
 
       <div className="flex gap-2 mb-4">
         <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Novo gasto</Btn>
@@ -634,7 +686,7 @@ export function HistoryScreen({ profile, data, refresh, isAdmin }) {
           onImportCSV={myCards.length > 0 ? () => { setShowForm(false); setShowImportCSV(true); } : null} />
       )}
       {showImportCSV && (
-        <ImportCSVModal cards={myCards} userId={profile.id} onImport={handleSave} onClose={() => setShowImportCSV(false)} />
+        <ImportCSVModal cards={myCards} userId={profile.id} expenses={data.expenses} onImport={handleSave} onClose={() => setShowImportCSV(false)} />
       )}
     </div>
   );
@@ -668,6 +720,7 @@ export function MemberOverview({ profile, data, refresh }) {
       <RecentReconciliationBanner expenses={data.expenses} reconciliations={data.reconciliations} profileId={profile.id} profiles={data.profiles} />
       <HeroPanel label="Total do mês" value={myMonthTotal} />
       <IncomeSection profile={profile} data={data} refresh={refresh} />
+      <SplitBalancePanel expenses={data.expenses} monthKey={now} profiles={data.profiles} viewerProfileId={profile.id} />
       <UpcomingBillsPanel cards={myCards.filter((c) => !c.archived)} expenses={data.expenses} />
 
       {myCards.filter((c) => !c.archived).length > 0 ? (
@@ -733,6 +786,7 @@ export function AdminOverview({ profile, data, refresh }) {
         <MonthlyReviewBanner onOpen={() => setShowRecurringReview(true)} />
         <RecentReconciliationBanner expenses={data.expenses} reconciliations={data.reconciliations} profileId={profile.id} profiles={data.profiles} />
         <HeroPanel label={scopeActive ? buildHeading(scopeIds) : "Total do mês"} value={totalMonth} />
+        <SplitBalancePanel expenses={data.expenses} monthKey={now} profiles={data.profiles} viewerProfileId={profile.id} />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {byPerson.map((p) => {
             const active = scopeIds.includes(p.id);
@@ -746,7 +800,7 @@ export function AdminOverview({ profile, data, refresh }) {
                   <span className="text-[11px]" style={{ color: active ? C.gold : C.muted }}>{firstName(p.name)}</span>
                 </div>
                 <div className="flex items-baseline gap-1.5">
-                  <Amount value={p.total} size="text-lg" />
+                  <Amount value={p.total} size="text-lg" animate />
                   {familyTotal > 0 && <span className="text-[11px]" style={{ color: C.muted }}>({pctShare.toFixed(0)}%)</span>}
                 </div>
                 {delta != null && (
@@ -830,8 +884,8 @@ export function AdminCards({ data, refresh, embedded, profile }) {
       {!embedded && <ScreenHeader title="Cartões" subtitle="Limites, vencimentos e acessos" />}
       {data.cards.length > 0 && (
         <div className="grid grid-cols-2 gap-3 mb-4">
-          <Panel><span className="text-[11px]" style={{ color: C.muted }}>limite total</span><div className="mt-1"><Amount value={totalLimit} size="text-lg" /></div></Panel>
-          <Panel><span className="text-[11px]" style={{ color: C.muted }}>disponível total</span><div className="mt-1"><Amount value={totalAvailable} size="text-lg" tone="green" /></div></Panel>
+          <Panel><span className="text-[11px]" style={{ color: C.muted }}>limite total</span><div className="mt-1"><Amount value={totalLimit} size="text-lg" animate /></div></Panel>
+          <Panel><span className="text-[11px]" style={{ color: C.muted }}>disponível total</span><div className="mt-1"><Amount value={totalAvailable} size="text-lg" tone="green" animate /></div></Panel>
         </div>
       )}
       <Btn full onClick={() => { setEditing(null); setShowForm(true); }}><Plus size={16} /> Novo cartão</Btn>
@@ -992,371 +1046,14 @@ export function ActivityLogScreen({ data, embedded }) {
   );
 }
 
-export function ReportsScreen({ profile, data, refresh, isAdmin }) {
-  const isDesktop = useIsDesktop();
-  const relevantCards = isAdmin ? data.cards : accessibleCards(data, profile.id);
-  const now = openInvoiceMonth(relevantCards);
-  const prevMonth = addMonthsToKey(now, -1);
-  const [view, setView] = useState("charts");
-  const [period, setPeriod] = useState("month");
-  const [customRange, setCustomRange] = useState({ start: "", end: "" });
-  const [selectedIds, setSelectedIds] = useState([]);
-  const [compareMonth, setCompareMonth] = useState(prevMonth);
-  const [summaryYear, setSummaryYear] = useState(parseInt(now.split("-")[0]));
-  const [compareMonths, setCompareMonths] = useState([]);
-
-  const scopeProfiles = useMemo(() => sortByName(isAdmin
-    ? (selectedIds.length === 0 ? data.profiles : data.profiles.filter((p) => selectedIds.includes(p.id)))
-    : data.profiles.filter((p) => p.id === profile.id)), [isAdmin, selectedIds, data.profiles, profile.id]);
-  const scopeIds = useMemo(() => scopeProfiles.map((p) => p.id), [scopeProfiles]);
-
-  const monthKeys = useMemo(() => monthKeysForPeriod(period, customRange, relevantCards), [period, customRange, relevantCards]);
-  const byCategory = useMemo(() => categoryTotalsForMonths(data.expenses, monthKeys, scopeIds), [data.expenses, monthKeys, scopeIds]);
-  const totalPeriod = byCategory.reduce((s, d) => s + d.value, 0);
-  const comparison = useMemo(() => categoryComparison(data.expenses, now, compareMonth, scopeIds), [data.expenses, now, compareMonth, scopeIds]);
-  const compareOptions = Array.from({ length: 12 }, (_, i) => addMonthsToKey(now, -(i + 1)));
-
-  const months = last6Months();
-  const last12Months = Array.from({ length: 12 }, (_, i) => addMonthsToKey(now, -i));
-  const toggleCompareMonth = (mk) => setCompareMonths((prev) => {
-    if (prev.includes(mk)) return prev.filter((x) => x !== mk);
-    if (prev.length >= 3) return prev;
-    return [...prev, mk].sort();
-  });
-  const compareCategoryRows = useMemo(() => {
-    if (compareMonths.length < 2) return [];
-    const scoped = data.expenses.filter((e) => scopeIds.includes(e.profile_id));
-    const cats = new Set();
-    compareMonths.forEach((mk) => allCategoryNames(scoped.filter((e) => isDueIn(e, mk))).forEach((c) => cats.add(c)));
-    return Array.from(cats).map((cat) => ({
-      cat,
-      values: compareMonths.map((mk) => scoped.filter((e) => e.category === cat && isDueIn(e, mk)).reduce((s, e) => s + monthlyValue(e), 0)),
-    })).filter((r) => r.values.some((v) => v > 0));
-  }, [compareMonths, data.expenses, scopeIds]);
-  const evolution = useMemo(() => months.map((mk) => {
-    const row = { month: monthLabel(mk) };
-    scopeProfiles.forEach((u) => { row[firstName(u.name)] = data.expenses.filter((e) => e.profile_id === u.id && isDueIn(e, mk)).reduce((s, e) => s + monthlyValue(e), 0); });
-    return row;
-  }), [months, scopeProfiles, data.expenses]);
-
-  const scopeInvestments = useMemo(() => (data.investments || []).filter((inv) => scopeIds.includes(inv.created_by) || scopeIds.some((id) => inv.memberIds.includes(id))), [data.investments, scopeIds]);
-  const wealthEvolution = useMemo(() => months.map((mk) => {
-    const total = scopeInvestments.reduce((s, inv) => s + investmentBalanceUpTo(inv.id, data.investmentTransactions || [], mk), 0);
-    return { month: monthLabel(mk), total };
-  }), [months, scopeInvestments, data.investmentTransactions]);
-  const hasInvestments = scopeInvestments.length > 0;
-
-  const yearMonthKeys = (y) => Array.from({ length: 12 }, (_, i) => `${y}-${String(i + 1).padStart(2, "0")}`);
-  const yearTotals = (y) => {
-    const mks = yearMonthKeys(y);
-    const expense = mks.reduce((s, mk) => s + scopeIds.reduce((s2, pid) => s2 + data.expenses.filter((e) => e.profile_id === pid && isDueIn(e, mk)).reduce((s3, e) => s3 + monthlyValue(e), 0), 0), 0);
-    const income = mks.reduce((s, mk) => s + scopeIds.reduce((s2, pid) => s2 + (data.incomes || []).filter((i) => i.profile_id === pid && isIncomeDueIn(i, mk)).reduce((s3, i) => s3 + incomeMonthlyValue(i), 0), 0), 0);
-    return { expense, income, saldo: income - expense };
-  };
-  const currentYearTotals = useMemo(() => yearTotals(summaryYear), [summaryYear, scopeIds, data.expenses, data.incomes]);
-  const prevYearTotals = useMemo(() => yearTotals(summaryYear - 1), [summaryYear, scopeIds, data.expenses, data.incomes]);
-  const yearPctDiff = (curr, prev) => (prev > 0 ? ((curr - prev) / prev) * 100 : null);
-
-  const heroLabel = period === "month" ? `Total de ${monthLabel(now)}` : `Total (${periodPresetLabel(period)})`;
-  const scopeLabel = !isAdmin ? "Seu relatório" : selectedIds.length === 0 ? "Todos" : scopeProfiles.map((p) => firstName(p.name)).join(" e ");
-
-  if (view === "goals") {
-    return (
-      <div className="max-w-3xl mx-auto px-4 pt-5 lg:max-w-6xl lg:px-10 lg:pt-8">
-        <ScreenHeader title="Relatórios" subtitle={isAdmin ? "Panorama financeiro" : "Seu panorama financeiro"} />
-        <ReportTabs view={view} setView={setView} isAdmin={isAdmin} />
-        <GoalsScreen profile={profile} data={data} refresh={refresh} embedded />
-      </div>
-    );
-  }
-
-  if (view === "activity" && isAdmin) {
-    return (
-      <div className="max-w-3xl mx-auto px-4 pt-5 pb-28 lg:max-w-6xl lg:px-10 lg:pt-8">
-        <ScreenHeader title="Relatórios" subtitle={isAdmin ? "Panorama financeiro" : "Seu panorama financeiro"} />
-        <ReportTabs view={view} setView={setView} isAdmin={isAdmin} />
-        <ActivityLogScreen data={data} embedded />
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-3xl mx-auto px-4 py-5 pb-28 space-y-4 lg:max-w-6xl lg:px-10 lg:pt-8 lg:pb-16">
-      <div className="flex items-center justify-between">
-        <ScreenHeader title="Relatórios" subtitle={isAdmin ? `Panorama financeiro · ${scopeLabel}` : "Seu panorama financeiro"} />
-        <button onClick={() => window.print()} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mb-4" style={{ border: `1px solid ${C.border}` }} title="Exportar PDF">
-          <Download size={15} color={C.gold} />
-        </button>
-      </div>
-      <div id="printable-report" style={{ color: "#111", background: "#fff" }}>
-        <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 2 }}>Relatório financeiro</h1>
-        <p style={{ fontSize: 12, color: "#555", marginBottom: 16 }}>{scopeLabel} · {heroLabel}</p>
-        <p style={{ fontSize: 22, fontWeight: 800, marginBottom: 18 }}>{brl(totalPeriod)}</p>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid #ccc", textAlign: "left" }}>
-              <th style={{ padding: "6px 4px" }}>Categoria</th>
-              <th style={{ padding: "6px 4px", textAlign: "right" }}>Valor</th>
-            </tr>
-          </thead>
-          <tbody>
-            {byCategory.map((d) => (
-              <tr key={d.name} style={{ borderBottom: "1px solid #eee" }}>
-                <td style={{ padding: "6px 4px" }}>{d.name}</td>
-                <td style={{ padding: "6px 4px", textAlign: "right" }}>{brl(d.value)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <h2 style={{ fontSize: 14, fontWeight: 700, marginTop: 24, marginBottom: 8 }}>Resumo anual · {summaryYear}</h2>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-          <tbody>
-            <tr><td style={{ padding: "4px" }}>Receita</td><td style={{ padding: "4px", textAlign: "right" }}>{brl(currentYearTotals.income)}</td></tr>
-            <tr><td style={{ padding: "4px" }}>Despesa</td><td style={{ padding: "4px", textAlign: "right" }}>{brl(currentYearTotals.expense)}</td></tr>
-            <tr><td style={{ padding: "4px", fontWeight: 700 }}>Saldo</td><td style={{ padding: "4px", textAlign: "right", fontWeight: 700 }}>{brl(currentYearTotals.saldo)}</td></tr>
-          </tbody>
-        </table>
-        <p style={{ fontSize: 10, color: "#999", marginTop: 24 }}>Gerado em {formatShortDate(new Date().toISOString().slice(0, 10))} pelo Controle Financeiro.</p>
-      </div>
-      <ReportTabs view={view} setView={setView} isAdmin={isAdmin} />
-      <HeroPanel label={heroLabel} value={totalPeriod} />
-
-      {isAdmin && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {sortByName(data.profiles).map((p) => {
-            const active = selectedIds.includes(p.id);
-            const personTotal = categoryTotalsForMonths(data.expenses, monthKeys, [p.id]).reduce((s, d) => s + d.value, 0);
-            return (
-              <button key={p.id} onClick={() => setSelectedIds((prev) => prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id])}
-                className="text-left rounded-2xl p-4 transition-all" style={{ background: C.surface, border: `1px solid ${active ? C.gold : C.border}`, boxShadow: C.shadow }}>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <Avatar profile={p} size={24} />
-                  <span className="text-[11px]" style={{ color: active ? C.gold : C.muted }}>{firstName(p.name)}</span>
-                </div>
-                <Amount value={personTotal} size="text-lg" />
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      <Panel>
-        <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Comparado ao mês anterior</h4>
-        {comparison.length === 0 ? (
-          <p className="text-sm" style={{ color: C.muted }}>Sem dados suficientes para comparar.</p>
-        ) : (
-          <div className="space-y-2.5">
-            {comparison.map((d) => {
-              const diff = d.previous > 0 ? ((d.current - d.previous) / d.previous) * 100 : (d.current > 0 ? 100 : 0);
-              const up = diff > 0;
-              return (
-                <div key={d.category} className="flex items-center justify-between text-sm">
-                  <span style={{ color: C.text }}>{d.category}</span>
-                  <div className="flex items-center gap-2">
-                    <Amount value={d.current} size="text-xs" />
-                    {d.previous > 0 && (
-                      <span className="flex items-center gap-0.5 text-[11px]" style={{ color: up ? C.rose : C.green }}>
-                        {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-                        {Math.abs(diff).toFixed(0)}%
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Panel>
-
-      <Panel>
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-xs font-medium tracking-wide uppercase" style={{ color: C.muted }}>Resumo anual</h4>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setSummaryYear((y) => y - 1)}><ChevronRight size={14} color={C.muted} style={{ transform: "rotate(180deg)" }} /></button>
-            <span className="text-xs font-medium" style={{ color: C.text }}>{summaryYear}</span>
-            <button onClick={() => setSummaryYear((y) => Math.min(y + 1, parseInt(now.split("-")[0])))}><ChevronRight size={14} color={C.muted} /></button>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-          <div className="rounded-xl px-3.5 py-3 flex items-center justify-between sm:block" style={{ background: C.bgSoft }}>
-            <div className="text-[11px] sm:mb-1" style={{ color: C.muted }}>receita</div>
-            <Amount value={currentYearTotals.income} size="text-base sm:text-sm" tone="green" />
-          </div>
-          <div className="rounded-xl px-3.5 py-3 flex items-center justify-between sm:block" style={{ background: C.bgSoft }}>
-            <div className="text-[11px] sm:mb-1" style={{ color: C.muted }}>despesa</div>
-            <Amount value={currentYearTotals.expense} size="text-base sm:text-sm" tone="rose" />
-          </div>
-          <div className="rounded-xl px-3.5 py-3 flex items-center justify-between sm:block" style={{ background: C.bgSoft }}>
-            <div className="text-[11px] sm:mb-1" style={{ color: C.muted }}>saldo</div>
-            <Amount value={currentYearTotals.saldo} size="text-base sm:text-sm" tone={currentYearTotals.saldo < 0 ? "rose" : "green"} />
-          </div>
-        </div>
-        {prevYearTotals.expense + prevYearTotals.income > 0 && (
-          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-[11px]" style={{ color: C.muted }}>
-            {(() => {
-              const dIncome = yearPctDiff(currentYearTotals.income, prevYearTotals.income);
-              const dExpense = yearPctDiff(currentYearTotals.expense, prevYearTotals.expense);
-              return (
-                <>
-                  {dIncome != null && <span>receita {dIncome >= 0 ? "▲" : "▼"} {Math.abs(dIncome).toFixed(0)}% vs {summaryYear - 1}</span>}
-                  {dExpense != null && <span>despesa {dExpense >= 0 ? "▲" : "▼"} {Math.abs(dExpense).toFixed(0)}% vs {summaryYear - 1}</span>}
-                </>
-              );
-            })()}
-          </div>
-        )}
-        <button onClick={() => downloadCSV(toCSVAnnual(data.expenses, scopeIds, summaryYear), `resumo-anual-${summaryYear}.csv`)}
-          className="flex items-center gap-1.5 text-xs font-medium mt-3" style={{ color: C.gold }}>
-          <Download size={13} /> Exportar resumo anual por categoria (CSV)
-        </button>
-      </Panel>
-
-      <Panel>
-        <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Por categoria</h4>
-        {byCategory.length === 0 ? (
-          <EmptyState icon={<PieIcon size={28} />} text="Sem dados neste período." />
-        ) : (
-          <div>
-            <div className="relative" style={{ height: 230 }}>
-              <ResponsiveContainer width="100%" height={230}>
-                <PieChart>
-                  <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={3} cornerRadius={6}>
-                    {byCategory.map((d, i) => <Cell key={i} fill={getCategoryColor(d.name)} stroke="none" />)}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-[10px]" style={{ color: C.muted }}>total</span>
-                <span className="text-lg font-extrabold" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{brl(totalPeriod)}</span>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3">
-              {byCategory.map((d) => (
-                <div key={d.name}>
-                  <div className="flex items-center gap-1.5 text-[11px]" style={{ color: C.muted }}>
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: getCategoryColor(d.name) }} />
-                    {d.name}
-                  </div>
-                  <Amount value={d.value} size="text-sm" />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </Panel>
-
-      <Panel>
-        <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Evolução mensal</h4>
-        <ResponsiveContainer width="100%" height={isDesktop ? 300 : 250}>
-          <BarChart data={evolution} barGap={isDesktop ? 4 : 6} barCategoryGap={isDesktop ? "18%" : "30%"}>
-            <XAxis dataKey="month" stroke={C.muted} fontSize={isDesktop ? 12 : 10} axisLine={false} tickLine={false} interval={0} />
-            <YAxis stroke={C.muted} fontSize={12} axisLine={false} tickLine={false} tickFormatter={compactNumber} width={42} />
-            <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} cursor={{ fill: "rgba(124,58,237,0.06)" }} />
-            {scopeProfiles.map((u, i) => (
-              <Bar key={u.id} dataKey={firstName(u.name)} radius={[6, 6, 0, 0]} fill={personColorFor(u.name, i)} maxBarSize={isDesktop ? 40 : 16}>
-                <LabelList dataKey={firstName(u.name)} position="top" formatter={(v) => (v > 0 ? compactNumber(v) : "")} fontSize={isDesktop ? 12 : 8} fill={C.muted} />
-              </Bar>
-            ))}
-          </BarChart>
-        </ResponsiveContainer>
-        {scopeProfiles.length > 1 && (
-          <div className="flex flex-wrap gap-x-5 gap-y-2 justify-center mt-3">
-            {scopeProfiles.map((u, i) => (
-              <div key={u.id} className="flex items-center gap-1.5 text-[11px]" style={{ color: C.muted }}>
-                <span className="w-2 h-2 rounded-full" style={{ background: personColorFor(u.name, i) }} />
-                {firstName(u.name)}
-              </div>
-            ))}
-          </div>
-        )}
-      </Panel>
-
-      <Panel>
-        <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Comparar meses específicos</h4>
-        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
-          {last12Months.map((mk) => {
-            const active = compareMonths.includes(mk);
-            return (
-              <button key={mk} onClick={() => toggleCompareMonth(mk)} className="px-2 py-2 rounded-lg text-xs font-medium capitalize transition-all"
-                style={{ background: active ? C.gold : C.bgSoft, color: active ? "var(--gold-contrast)" : C.muted, border: `1px solid ${active ? C.gold : C.border}` }}>
-                {monthLabel(mk)}
-              </button>
-            );
-          })}
-        </div>
-        {compareMonths.length < 2 ? (
-          <p className="text-xs" style={{ color: C.muted }}>Escolha 2 ou 3 meses acima para comparar categoria por categoria.</p>
-        ) : compareCategoryRows.length === 0 ? (
-          <EmptyState icon={<PieIcon size={28} />} text="Sem gastos nos meses escolhidos." />
-        ) : (
-          <>
-            {/* Celular: um card por categoria, mês/valor bem separados */}
-            <div className="sm:hidden space-y-3">
-              {compareCategoryRows.map((r) => (
-                <div key={r.cat} className="rounded-xl p-3" style={{ background: C.bgSoft, border: `1px solid ${C.border}` }}>
-                  <div className="text-sm font-medium mb-2" style={{ color: C.text }}>{r.cat}</div>
-                  <div className="space-y-1.5">
-                    {compareMonths.map((mk, i) => (
-                      <div key={mk} className="flex items-center justify-between">
-                        <span className="text-xs capitalize" style={{ color: C.muted }}>{monthLabel(mk)}</span>
-                        <Amount value={r.values[i]} size="text-sm" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {/* Telas maiores: tabela */}
-            <div className="hidden sm:block overflow-x-auto">
-              <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
-                <thead>
-                  <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                    <th className="text-left py-2 text-[11px] font-medium uppercase" style={{ color: C.muted }}>Categoria</th>
-                    {compareMonths.map((mk) => (
-                      <th key={mk} className="text-right py-2 text-[11px] font-medium capitalize" style={{ color: C.muted }}>{monthLabel(mk)}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {compareCategoryRows.map((r) => (
-                    <tr key={r.cat} style={{ borderBottom: `1px solid ${C.border}` }}>
-                      <td className="py-2" style={{ color: C.text }}>{r.cat}</td>
-                      {r.values.map((v, i) => (
-                        <td key={i} className="text-right py-2"><Amount value={v} size="text-xs" /></td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-      </Panel>
-
-      {hasInvestments && (
-        <Panel>
-          <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Evolução do patrimônio investido</h4>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={wealthEvolution}>
-              <XAxis dataKey="month" stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} />
-              <YAxis stroke={C.muted} fontSize={11} axisLine={false} tickLine={false} tickFormatter={compactNumber} width={38} />
-              <Tooltip formatter={(v) => brl(v)} contentStyle={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10 }} labelStyle={{ color: C.text }} itemStyle={{ color: C.text }} />
-              <Line type="monotone" dataKey="total" stroke={C.green} strokeWidth={2.5} dot={{ r: 3, fill: C.green }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </Panel>
-      )}
-    </div>
-  );
-}
-
-export function MemberApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
-  const [tab, setTab] = usePersistentTab("tab-member", "overview");
+function AppShell({ profile, data, refresh, onLogout, theme, onToggleTheme, isAdmin }) {
+  const [tab, setTab] = usePersistentTab(isAdmin ? "tab-admin" : "tab-member", "overview");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showQuickIncome, setShowQuickIncome] = useState(false);
-  const myCards = accessibleCards(data, profile.id);
+  const myCards = isAdmin ? data.cards : accessibleCards(data, profile.id);
   useBillAlerts(myCards, data.expenses, data.invoicePayments);
   useBudgetAlerts(profile, data);
+  useWeeklyDigest(profile, data);
   useKeyboardShortcuts({
     onNewExpense: () => setShowQuickAdd(true),
     onNewIncome: () => setShowQuickIncome(true),
@@ -1375,17 +1072,18 @@ export function MemberApp({ profile, data, refresh, onLogout, theme, onToggleThe
     await logActivity(profile.id, "criou", `Lançou o gasto "${arr[0]?.description || "gasto"}"`);
   };
   const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
+  const OverviewScreen = isAdmin ? AdminOverview : MemberOverview;
   return (
     <div className="lg:flex lg:items-start">
       <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
       <div className="lg:flex-1 lg:min-w-0">
         <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} /></div>
-        {tab === "overview" && <MemberOverview profile={profile} data={data} refresh={refresh} />}
-        {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
-        {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
-        {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin={false} />}
+        {tab === "overview" && <OverviewScreen profile={profile} data={data} refresh={refresh} />}
+        {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={isAdmin} />}
+        {tab === "reports" && <Suspense fallback={<ReportsScreenFallback />}><ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin={isAdmin} /></Suspense>}
+        {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin={isAdmin} />}
         <FloatingAddButton onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
-        {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id} expenses={data.expenses}
+        {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id} canRefund={isAdmin} expenses={data.expenses}
           customCategories={data.customCategories} onAddCategory={guardedHandler(async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }, "adicionar a categoria")} />}
         {showQuickIncome && <IncomeForm profileId={profile.id} onSave={handleQuickIncomeSave} onClose={() => setShowQuickIncome(false)} />}
         <div className="lg:hidden"><BottomNav tabs={tabs} tab={tab} setTab={setTab} /></div>
@@ -1394,45 +1092,8 @@ export function MemberApp({ profile, data, refresh, onLogout, theme, onToggleThe
   );
 }
 
-export function AdminApp({ profile, data, refresh, onLogout, theme, onToggleTheme }) {
-  const [tab, setTab] = usePersistentTab("tab-admin", "overview");
-  const [showQuickAdd, setShowQuickAdd] = useState(false);
-  const [showQuickIncome, setShowQuickIncome] = useState(false);
-  useBillAlerts(data.cards, data.expenses, data.invoicePayments);
-  useBudgetAlerts(profile, data);
-  useKeyboardShortcuts({
-    onNewExpense: () => setShowQuickAdd(true),
-    onNewIncome: () => setShowQuickIncome(true),
-    onNavigate: (i) => setTab(["overview", "history", "reports", "investments"][i] || tab),
-  });
-  const tabs = [
-    { id: "overview", label: "Início", icon: <LayoutGrid size={18} /> },
-    { id: "history", label: "Faturas", icon: <ListChecks size={18} />, badge: anyCardAlert(data.cards, data.expenses, data.invoicePayments) },
-    { id: "reports", label: "Relatórios", icon: <PieIcon size={18} /> },
-    { id: "investments", label: "Invest.", fullLabel: "Investimentos", icon: <PiggyBank size={18} /> },
-  ];
-  const handleQuickSave = async (expArr) => {
-    const arr = Array.isArray(expArr) ? expArr : [expArr];
-    for (const e of arr) await saveExpense(e);
-    await refresh();
-    await logActivity(profile.id, "criou", `Lançou o gasto "${arr[0]?.description || "gasto"}"`);
-  };
-  const handleQuickIncomeSave = async (inc) => { await saveIncome(inc); await refresh(); };
-  return (
-    <div className="lg:flex lg:items-start">
-      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
-      <div className="lg:flex-1 lg:min-w-0">
-        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} /></div>
-        {tab === "overview" && <AdminOverview profile={profile} data={data} refresh={refresh} />}
-        {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin />}
-        {tab === "reports" && <ReportsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
-        {tab === "investments" && <InvestmentsScreen profile={profile} data={data} refresh={refresh} isAdmin />}
-        <FloatingAddButton onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} />
-        {showQuickAdd && <ExpenseForm cards={data.cards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id} canRefund expenses={data.expenses}
-          customCategories={data.customCategories} onAddCategory={guardedHandler(async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }, "adicionar a categoria")} />}
-        {showQuickIncome && <IncomeForm profileId={profile.id} onSave={handleQuickIncomeSave} onClose={() => setShowQuickIncome(false)} />}
-        <div className="lg:hidden"><BottomNav tabs={tabs} tab={tab} setTab={setTab} /></div>
-      </div>
-    </div>
-  );
-}
+// MemberApp e AdminApp eram duas cópias quase idênticas (só mudava isAdmin,
+// a fonte dos cartões e qual tela de "Início" usar). Agora são só invólucros
+// finos por cima do mesmo AppShell — mesma API externa, sem duplicação.
+export function MemberApp(props) { return <AppShell {...props} isAdmin={false} />; }
+export function AdminApp(props) { return <AppShell {...props} isAdmin />; }

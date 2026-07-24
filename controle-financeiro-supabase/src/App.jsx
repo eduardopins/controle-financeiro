@@ -5,6 +5,7 @@ import { loadAll } from "./lib/data";
 import { useFonts, useThemeStyles, useTheme } from "./hooks";
 import { Login } from "./components/domain";
 import { MemberApp, AdminApp } from "./screens";
+import { ToastProvider } from "./components/Toast";
 
 
 
@@ -69,13 +70,15 @@ export default function App() {
   const handleLogout = async () => { await supabase.auth.signOut(); };
 
   return (
-    <div className="min-h-screen" style={{ background: C.bg }}>
-      {error && <div className="text-center text-xs py-1.5" style={{ background: "rgba(221,124,134,0.15)", color: C.rose }}>{error}</div>}
-      {profile.role === "admin" ? (
-        <AdminApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />
-      ) : (
-        <MemberApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />
-      )}
-    </div>
+    <ToastProvider>
+      <div className="min-h-screen" style={{ background: C.bg }}>
+        {error && <div className="text-center text-xs py-1.5" style={{ background: "rgba(221,124,134,0.15)", color: C.rose }}>{error}</div>}
+        {profile.role === "admin" ? (
+          <AdminApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />
+        ) : (
+          <MemberApp profile={profile} data={data} refresh={refresh} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />
+        )}
+      </div>
+    </ToastProvider>
   );
 }

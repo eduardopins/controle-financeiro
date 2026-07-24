@@ -513,3 +513,50 @@ export function categoryTotalsForMonths(expenses, monthKeys, profileIds = null) 
     return { name: cat, value };
   }).filter((d) => d.value > 0).sort((a, b) => b.value - a.value);
 }
+
+// Calcula, para um mês, quem deve quanto pra quem entre os gastos divididos
+// (split). Cada divisão vira duas linhas no banco com o mesmo split_group_id;
+// a pessoa dona do cartão (created_by) é quem "adiantou" o dinheiro, e a outra
+// parte da divisão deve a ela a sua fatia. Se as duas pessoas se devem em
+// grupos diferentes no mesmo mês, o saldo já sai líquido (uma só direção).
+export function splitBalances(expenses, monthKey) {
+  const groups = {};
+  expenses.forEach((e) => {
+    if (!e.split_group_id || !isDueIn(e, monthKey)) return;
+    (groups[e.split_group_id] ||= []).push(e);
+  });
+  const directional = {}; // "owerId->payerId" -> { amount, items }
+  Object.values(groups).forEach((parts) => {
+    if (parts.length < 2) return;
+    const payerId = parts[0].created_by;
+    parts.forEach((p) => {
+      if (p.profile_id === payerId) return;
+      const amt = monthlyValue(p, monthKey);
+      if (amt <= 0) return;
+      const key = `${p.profile_id}->${payerId}`;
+      (directional[key] ||= { amount: 0, items: [] });
+      directional[key].amount += amt;
+      directional[key].items.push({ description: p.description, date: p.purchase_date, amount: amt });
+    });
+  });
+  const pairs = {};
+  Object.entries(directional).forEach(([key, { amount, items }]) => {
+    const [a, b] = key.split("->");
+    const pairKey = [a, b].sort().join("|");
+    (pairs[pairKey] ||= { a, b, aOwesB: 0, bOwesA: 0, aOwesBItems: [], bOwesAItems: [] });
+    if (a === pairs[pairKey].a) { pairs[pairKey].aOwesB += amount; pairs[pairKey].aOwesBItems.push(...items); }
+    else { pairs[pairKey].bOwesA += amount; pairs[pairKey].bOwesAItems.push(...items); }
+  });
+  // O "líquido" é só o resultado final — pra quem quiser conferir a conta, cada
+  // saldo carrega os lançamentos que a formam: as compras que geraram a dívida
+  // (direção "owe") e as que abateram dela por irem no sentido contrário ("offset").
+  return Object.values(pairs).map(({ a, b, aOwesB, bOwesA, aOwesBItems, bOwesAItems }) => {
+    const net = aOwesB - bOwesA;
+    if (Math.abs(net) < 0.01) return null;
+    const owerId = net > 0 ? a : b;
+    const payerId = net > 0 ? b : a;
+    const oweItems = (net > 0 ? aOwesBItems : bOwesAItems).map((it) => ({ ...it, direction: "owe" }));
+    const offsetItems = (net > 0 ? bOwesAItems : aOwesBItems).map((it) => ({ ...it, direction: "offset" }));
+    return { owerId, payerId, amount: Math.abs(net), items: [...oweItems, ...offsetItems].sort((x, y) => x.date.localeCompare(y.date)) };
+  }).filter(Boolean);
+}

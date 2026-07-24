@@ -172,7 +172,11 @@ export function ExpenseForm({ cards, userId, onSave, onClose, initial, allProfil
   };
 
   const submit = async () => {
-    if (!description.trim() || !totalAmount) return;
+    const trimmedDesc = description.trim();
+    if (!trimmedDesc) { setErr("Informe uma descrição para o gasto."); return; }
+    if (!(totalNum > 0)) { setErr("Informe um valor válido, maior que zero."); return; }
+    if (!date) { setErr("Informe a data da compra."); return; }
+    if (splitEnabled && splitWith && !isRefund && (amountA <= 0 || amountB <= 0)) { setErr("A divisão precisa deixar um valor maior que zero para cada pessoa."); return; }
     setSaving(true); setErr("");
     try {
       let receiptUrl = existingReceipt;
@@ -361,7 +365,11 @@ export function CardForm({ allProfiles, onSave, onClose, initial }) {
   const toggle = (id) => setMemberIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
 
   const submit = async () => {
-    if (!name.trim() || !limit) return;
+    if (!name.trim()) { setErr("Informe o nome do cartão."); return; }
+    if (!(parseFloat(limit) > 0)) { setErr("Informe um limite válido, maior que zero."); return; }
+    const cd = parseInt(closingDay), dd = parseInt(dueDay);
+    if (!(cd >= 1 && cd <= 31)) { setErr("O dia de fechamento precisa ser entre 1 e 31."); return; }
+    if (!(dd >= 1 && dd <= 31)) { setErr("O dia de vencimento precisa ser entre 1 e 31."); return; }
     setSaving(true); setErr("");
     try {
       await onSave({ id: initial?.id, name: name.trim(), card_limit: parseFloat(limit), closing_day: parseInt(closingDay), due_day: parseInt(dueDay), memberIds, archived });
@@ -484,7 +492,7 @@ export function GroupedExpenseRow({ parts, cardName, personName, viewerProfileId
   const primaryRecInfo = recInfos[0];
 
   return (
-    <div className="flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}`, opacity: allReconciled ? 0.6 : 1 }}>
+    <div className="animate-item-enter flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}`, opacity: allReconciled ? 0.6 : 1 }}>
       {onToggleReconciled && contextMonth && (
         <button onClick={() => onToggleReconciled(parts, contextMonth, !allReconciled)} className="shrink-0" title={allReconciled ? "Conferido" : "Marcar como conferido"}>
           {allReconciled ? <CheckSquare size={16} color={C.green} /> : <Square size={16} color={C.muted} />}
@@ -536,7 +544,7 @@ export function ExpenseRow({ exp, cardName, personName, creatorName, contextMont
   const recInfo = contextMonth && reconciliations ? reconciliations.get(`${exp.id}|${contextMonth}`) : null;
   const isReconciled = !!recInfo;
   return (
-    <div className="flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}`, opacity: isReconciled ? 0.6 : 1 }}>
+    <div className="animate-item-enter flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.border}`, opacity: isReconciled ? 0.6 : 1 }}>
       {selectable && (
         <button onClick={() => onToggleSelect(exp.id)} className="shrink-0">
           {selected ? <CheckSquare size={16} color={C.gold} /> : <Square size={16} color={C.muted} />}
@@ -584,7 +592,9 @@ export function IncomeForm({ profileId, onSave, onClose, initial }) {
   const [err, setErr] = useState("");
 
   const submit = async () => {
-    if (!description.trim() || !amount) return;
+    if (!description.trim()) { setErr("Informe uma descrição para a receita."); return; }
+    if (!(parseFloat(amount) > 0)) { setErr("Informe um valor válido, maior que zero."); return; }
+    if (!date) { setErr("Informe a data."); return; }
     setSaving(true); setErr("");
     try {
       await onSave({ id: initial?.id, profileId, description: description.trim(), amount: parseFloat(amount), date, isRecurring });
@@ -637,7 +647,7 @@ export function IncomeSection({ profile, data, refresh, scopeIds, scopeLabel }) 
           </div>
           <div>
             <span className="text-[11px]" style={{ color: C.muted }}>{scopeLabel || "saldo do mês"}</span>
-            <div><Amount value={saldo} size="text-2xl" tone={saldo < 0 ? "rose" : "green"} /></div>
+            <div><Amount value={saldo} size="text-2xl" tone={saldo < 0 ? "rose" : "green"} animate /></div>
           </div>
         </div>
       </div>
@@ -703,7 +713,8 @@ export function InvestmentForm({ allProfiles, viewerProfileId, onSave, onClose, 
   const toggle = (id) => setMemberIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
 
   const submit = async () => {
-    if (!name.trim()) return;
+    if (!name.trim()) { setErr("Informe o nome da caixinha."); return; }
+    if (targetAmount && !(parseFloat(targetAmount) > 0)) { setErr("A meta precisa ser um valor maior que zero."); return; }
     setSaving(true); setErr("");
     try {
       await onSave({
@@ -758,7 +769,7 @@ export function InvestmentTransactionForm({ investmentId, profileId, defaultType
   const [err, setErr] = useState("");
 
   const submit = async () => {
-    if (!amount) return;
+    if (!(parseFloat(amount) > 0)) { setErr("Informe um valor válido, maior que zero."); return; }
     setSaving(true); setErr("");
     try {
       let receiptUrl = null;
@@ -833,7 +844,7 @@ export function InvestmentCard({ inv, balance, transactions, profiles, viewerPro
         <Chip tone="green" icon={<TrendingUp size={10} />}>{inv.cdi_percent}% do CDI</Chip>
       )}
       <span className="text-[11px] block mt-2" style={{ color: C.muted }}>saldo</span>
-      <div className="mb-3"><Amount value={balance} size="text-2xl" tone="green" /></div>
+      <div className="mb-3"><Amount value={balance} size="text-2xl" tone="green" animate /></div>
       {(() => {
         const rate = investmentMonthlyRate(inv, cdiAnnual);
         const estYield = rate != null ? estimatedYieldToDate(inv.id, transactions, rate) : 0;
@@ -980,7 +991,7 @@ export function InvestmentSimulator({ cdiAnnual, onClose, embedded }) {
   return <Modal title="Simulador de investimento" onClose={onClose}>{content}</Modal>;
 }
 
-export function ImportCSVModal({ cards, userId, onImport, onClose }) {
+export function ImportCSVModal({ cards, userId, expenses, onImport, onClose }) {
   const [rows, setRows] = useState(null);
   const [cardId, setCardId] = useState(cards[0]?.id || "");
   const [saving, setSaving] = useState(false);
@@ -989,7 +1000,19 @@ export function ImportCSVModal({ cards, userId, onImport, onClose }) {
   const handleFile = async (file) => {
     if (!file) return;
     const text = await file.text();
-    setRows(parseBankCSV(text));
+    const parsed = parseBankCSV(text);
+    // Marca como possível duplicata (e já desmarca pra não importar) qualquer linha
+    // muito parecida com um gasto que já existe nesse cartão perto da mesma data —
+    // evita lançar a mesma compra duas vezes ao reimportar um extrato.
+    const existing = (expenses || []).filter((e) => e.card_id === cardId);
+    const withDuplicateCheck = parsed.map((r) => {
+      const isDup = existing.some((e) =>
+        Math.abs(Math.abs(e.total_amount) - Math.abs(r.amount)) < 0.01 &&
+        Math.abs(diffDays(e.purchase_date, r.date)) <= 3
+      );
+      return { ...r, include: !isDup, possibleDuplicate: isDup };
+    });
+    setRows(withDuplicateCheck);
   };
   const toggleRow = (i) => setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, include: !r.include } : r)));
   const updateCategory = (i, cat) => setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, category: cat } : r)));
@@ -1011,6 +1034,8 @@ export function ImportCSVModal({ cards, userId, onImport, onClose }) {
     }
   };
 
+  const duplicateCount = rows?.filter((r) => r.possibleDuplicate).length || 0;
+
   return (
     <Modal title="Importar extrato (CSV)" onClose={onClose}>
       {!rows ? (
@@ -1028,13 +1053,21 @@ export function ImportCSVModal({ cards, userId, onImport, onClose }) {
             </Select>
           </Field>
           <p className="text-xs mb-2" style={{ color: C.muted }}>{rows.filter((r) => r.include).length} de {rows.length} lançamentos serão importados</p>
+          {duplicateCount > 0 && (
+            <p className="text-xs mb-2 flex items-center gap-1.5" style={{ color: C.amber }}>
+              <AlertTriangle size={12} /> {duplicateCount} parecem já estar lançados nesse cartão — vieram desmarcados, mas você pode incluir se quiser.
+            </p>
+          )}
           <div className="max-h-64 overflow-y-auto space-y-2 mb-3">
             {rows.map((r, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs rounded-lg p-2" style={{ background: C.bgSoft, opacity: r.include ? 1 : 0.4 }}>
+              <div key={i} className="flex items-center gap-2 text-xs rounded-lg p-2" style={{ background: C.bgSoft, opacity: r.include ? 1 : 0.4, border: r.possibleDuplicate ? `1px solid ${C.amber}` : "1px solid transparent" }}>
                 <button onClick={() => toggleRow(i)}>{r.include ? <CheckSquare size={14} color={C.gold} /> : <Square size={14} color={C.muted} />}</button>
                 <div className="flex-1 min-w-0">
-                  <div className="truncate" style={{ color: C.text }}>{r.description}</div>
-                  <div style={{ color: C.muted }}>{r.date}</div>
+                  <div className="truncate flex items-center gap-1" style={{ color: C.text }}>
+                    {r.description}
+                    {r.possibleDuplicate && <AlertTriangle size={11} color={C.amber} title="Parece já estar lançado" />}
+                  </div>
+                  <div style={{ color: C.muted }}>{r.date}{r.possibleDuplicate && <span style={{ color: C.amber }}> · possível duplicata</span>}</div>
                 </div>
                 <Select value={r.category} onChange={(e) => updateCategory(i, e.target.value)} style={{ padding: "4px 6px", fontSize: 11 }}>
                   {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}

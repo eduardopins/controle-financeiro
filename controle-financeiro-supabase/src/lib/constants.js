@@ -23,6 +23,11 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--gold); outline-
   #printable-report, #printable-report * { visibility: visible; }
   #printable-report { display: block; position: absolute; left: 0; top: 0; width: 100%; padding: 24px; }
 }
+@keyframes item-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.animate-item-enter { animation: item-enter 0.28s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-item-enter { animation: none; }
+}
 .theme-dark {
   --bg: #0A0C18; --bg-soft: #10132A; --surface: #151933; --surface-alt: #1C2140;
   --border: rgba(184,147,90,0.14); --border-strong: rgba(184,147,90,0.34);

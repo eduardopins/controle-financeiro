@@ -6,11 +6,16 @@ import { monthKeyFromDate } from "./domain";
 /* ---------------------------------- data layer (Supabase) ---------------------------------- */
 
 export async function loadAll() {
+  const thirtyDaysAgoISO = new Date(Date.now() - 30 * 86400000).toISOString();
   const queries = [
     ["profiles", supabase.from("profiles").select("*")],
     ["cards", supabase.from("cards").select("*")],
     ["card_access", supabase.from("card_access").select("*")],
-    ["expenses", supabase.from("expenses").select("*")],
+    // Antes: uma única consulta trazia TODOS os gastos, inclusive os excluídos há
+    // anos (a tela só mostra a lixeira dos últimos 30 dias, então isso era
+    // transferido à toa). Agora o filtro é feito no banco, não no navegador.
+    ["expenses_active", supabase.from("expenses").select("*").is("deleted_at", null)],
+    ["expenses_deleted_recent", supabase.from("expenses").select("*").not("deleted_at", "is", null).gte("deleted_at", thirtyDaysAgoISO)],
     ["budgets", supabase.from("budgets").select("*")],
     ["incomes", supabase.from("incomes").select("*")],
     ["custom_categories", supabase.from("custom_categories").select("*")],
@@ -24,7 +29,7 @@ export async function loadAll() {
     ["pluggy_unmatched_transactions", supabase.from("pluggy_unmatched_transactions").select("*").eq("dismissed", false).order("transaction_date", { ascending: false })],
   ];
   const results = await Promise.all(queries.map(([, p]) => p));
-  const [profiles, cards, cardAccess, expenses, budgets, incomes, customCategories, investments, investmentAccess, investmentTx, activityLog, invoicePayments, expenseOverrides, reconciliations, unmatchedTx] = results;
+  const [profiles, cards, cardAccess, expensesActive, expensesDeletedRecent, budgets, incomes, customCategories, investments, investmentAccess, investmentTx, activityLog, invoicePayments, expenseOverrides, reconciliations, unmatchedTx] = results;
 
   // Antes esses erros eram ignorados (só .data era lido) — se uma consulta falhasse
   // (RLS, rede, etc.), a tela só ficava com dados vazios sem avisar ninguém. Agora
@@ -45,13 +50,11 @@ export async function loadAll() {
     ...inv,
     memberIds: (investmentAccess.data || []).filter((a) => a.investment_id === inv.id).map((a) => a.profile_id),
   }));
-  const allExpenses = expenses.data || [];
-  const thirtyDaysAgo = Date.now() - 30 * 86400000;
   return {
     profiles: profiles.data || [],
     cards: cardsWithMembers,
-    expenses: allExpenses.filter((e) => !e.deleted_at),
-    deletedExpenses: allExpenses.filter((e) => e.deleted_at && new Date(e.deleted_at).getTime() > thirtyDaysAgo),
+    expenses: expensesActive.data || [],
+    deletedExpenses: expensesDeletedRecent.data || [],
     budgets: budgets.data || [],
     incomes: incomes.data || [],
     customCategories: customCategories.data || [],

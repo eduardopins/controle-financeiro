@@ -17,13 +17,18 @@ export function friendlyError(e) {
 // silenciosamente (unhandled promise rejection). Uso:
 //   const handleDelete = guardedHandler(async (inc) => { ...; await refresh(); }, "excluir a receita");
 export function guardedHandler(fn, actionLabel = "concluir a ação") {
+  let inFlight = false;
   return async (...args) => {
+    if (inFlight) return undefined; // ignora cliques repetidos enquanto a ação anterior ainda está em andamento
+    inFlight = true;
     try {
       return await fn(...args);
     } catch (e) {
       console.error(`Falha ao ${actionLabel}:`, e);
       alert(`Não foi possível ${actionLabel}. ${friendlyError(e)}`);
       return undefined;
+    } finally {
+      inFlight = false;
     }
   };
 }

@@ -1,8 +1,58 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, PieChart as PieIcon, X, ChevronRight, Target, Sun, Moon, Paperclip, Zap, Calendar, Camera, History, BellRing } from "lucide-react";
+import { Plus, PieChart as PieIcon, X, ChevronRight, Target, Sun, Moon, Paperclip, Zap, Calendar, Camera, History, BellRing, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
 import { C, MONTHS_FULL_PT, WEEKDAYS_PT, HERO_GRADIENT } from "../lib/constants";
-import { brl, firstName, sortByName, upcomingBills, formatMoneyFromCents, formatDateBR, daysInMonth, pad2 } from "../lib/domain";
+import { brl, firstName, sortByName, upcomingBills, formatMoneyFromCents, formatDateBR, daysInMonth, pad2, splitBalances } from "../lib/domain";
+import { useCountUp } from "../hooks";
 
+
+// Resumo de "quem deve quem" nos gastos divididos do mês. Só aparece se a
+// pessoa que está olhando tiver alguma divisão pendente com outra pessoa.
+export function SplitBalancePanel({ expenses, monthKey, profiles, viewerProfileId }) {
+  const balances = splitBalances(expenses, monthKey).filter((b) => b.owerId === viewerProfileId || b.payerId === viewerProfileId);
+  const [expanded, setExpanded] = useState(null);
+  if (balances.length === 0) return null;
+  const nameOf = (id) => firstName(profiles.find((p) => p.id === id)?.name) || "alguém";
+  return (
+    <Panel className="mb-4">
+      <h4 className="text-xs font-medium mb-3 tracking-wide uppercase flex items-center gap-1.5" style={{ color: C.muted }}>
+        <ArrowUpCircle size={12} color={C.gold} /> Divisão de gastos este mês
+      </h4>
+      <div className="space-y-1">
+        {balances.map((b, i) => {
+          const youOwe = b.owerId === viewerProfileId;
+          const isOpen = expanded === i;
+          return (
+            <div key={i}>
+              <button onClick={() => setExpanded(isOpen ? null : i)} className="w-full flex items-center justify-between text-sm py-1.5">
+                <div className="flex items-center gap-2">
+                  {youOwe ? <ArrowUpCircle size={14} color={C.rose} /> : <ArrowDownCircle size={14} color={C.green} />}
+                  <span style={{ color: C.text }}>{youOwe ? `Você deve pra ${nameOf(b.payerId)}` : `${nameOf(b.owerId)} te deve`}</span>
+                  <ChevronRight size={12} color={C.muted} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+                </div>
+                <Amount value={b.amount} size="text-sm" tone={youOwe ? "rose" : "green"} />
+              </button>
+              {isOpen && (
+                <div className="animate-item-enter ml-6 mb-2 pl-2.5 space-y-1" style={{ borderLeft: `2px solid ${C.border}` }}>
+                  {b.items.map((it, j) => (
+                    <div key={j} className="flex items-center justify-between text-xs">
+                      <span className="truncate mr-2" style={{ color: C.muted }}>
+                        {it.direction === "offset" ? "− " : "+ "}{it.description} · {formatDateBR(it.date)}
+                      </span>
+                      <span style={{ color: it.direction === "offset" ? C.green : C.muted }}>{brl(it.amount)}</span>
+                    </div>
+                  ))}
+                  <p className="text-[10px] pt-1" style={{ color: C.muted }}>
+                    O valor acima já é o saldo líquido — o que foi devido numa direção menos o que foi devido na outra.
+                  </p>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
 
 export function UpcomingBillsPanel({ cards, expenses }) {
   const bills = upcomingBills(cards, expenses);
@@ -28,13 +78,14 @@ export function UpcomingBillsPanel({ cards, expenses }) {
 }
 
 export function HeroPanel({ label, value, sub }) {
+  const animated = useCountUp(value);
   return (
     <div className="rounded-3xl p-6 mb-4 relative overflow-hidden" style={{ background: HERO_GRADIENT, boxShadow: "0 14px 34px rgba(0,0,0,0.35)" }}>
       <div style={{ position: "absolute", right: -40, top: -40, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
       <div style={{ position: "absolute", left: -25, bottom: -55, width: 130, height: 130, borderRadius: "50%", background: "rgba(255,255,255,0.06)" }} />
       <span className="text-xs relative" style={{ color: "rgba(255,255,255,0.75)" }}>{label}</span>
       <div className="mt-1 relative">
-        <span className="text-3xl font-extrabold" style={{ color: "#fff", fontFamily: "'Manrope', sans-serif", fontVariantNumeric: "tabular-nums" }}>{brl(value)}</span>
+        <span className="text-3xl font-extrabold" style={{ color: "#fff", fontFamily: "'Manrope', sans-serif", fontVariantNumeric: "tabular-nums" }}>{brl(animated)}</span>
       </div>
       {sub && <div className="mt-1 relative text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>{sub}</div>}
     </div>
@@ -227,13 +278,14 @@ export function FileInput({ onFileSelected, accept, label }) {
   );
 }
 
-export function Amount({ value, size = "text-lg", tone }) {
+export function Amount({ value, size = "text-lg", tone, animate = false }) {
   const color = tone === "rose" ? C.rose : tone === "green" ? C.green : tone === "gold" ? C.gold : C.text;
-  return <span className={size} style={{ fontFamily: "'IBM Plex Mono', monospace", color, fontVariantNumeric: "tabular-nums" }}>{brl(value)}</span>;
+  const animated = useCountUp(value); // hook sempre chamado (regra dos hooks); só usamos o valor se animate=true
+  return <span className={size} style={{ fontFamily: "'IBM Plex Mono', monospace", color, fontVariantNumeric: "tabular-nums" }}>{brl(animate ? animated : value)}</span>;
 }
 export function ProgressBar({ pct, tone = "gold" }) {
   const color = tone === "rose" ? C.rose : tone === "green" ? C.green : C.gold;
-  return <div className="h-2 w-full rounded-full overflow-hidden" style={{ background: C.border }}><div className="h-full rounded-full transition-all" style={{ width: `${Math.min(Math.max(pct, pct > 0 ? 3 : 0), 100)}%`, background: color }} /></div>;
+  return <div className="h-2 w-full rounded-full overflow-hidden" style={{ background: C.border }}><div className="h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${Math.min(Math.max(pct, pct > 0 ? 3 : 0), 100)}%`, background: color }} /></div>;
 }
 export function Chip({ tone = "muted", icon, children }) {
   const colors = { rose: C.rose, amber: C.amber, muted: C.muted, green: C.green, gold: C.gold };
