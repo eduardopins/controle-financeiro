@@ -3,7 +3,7 @@ import { supabase } from "./lib/supabaseClient";
 import { C } from "./lib/constants";
 import { loadAll } from "./lib/data";
 import { useFonts, useThemeStyles, useTheme } from "./hooks";
-import { Login } from "./components/domain";
+import { Login, SetNewPassword } from "./components/domain";
 import { LoadingSkeleton } from "./components/primitives";
 import { MemberApp, AdminApp } from "./screens";
 import { ToastProvider } from "./components/Toast";
@@ -21,6 +21,7 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
 
   const refresh = useCallback(async () => {
     const scrollY = window.scrollY;
@@ -38,7 +39,10 @@ export default function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setAuthUser(data.session?.user || null));
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => setAuthUser(session?.user || null));
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
+      setAuthUser(session?.user || null);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -65,6 +69,7 @@ export default function App() {
   }, [authUser, refresh]);
 
   if (authUser === undefined) return <LoadingSkeleton />;
+  if (passwordRecovery) return <SetNewPassword onDone={() => setPasswordRecovery(false)} theme={theme} onToggleTheme={toggleTheme} />;
   if (!authUser) return <Login onLogin={(u) => { try { localStorage.setItem("tab-member", "overview"); localStorage.setItem("tab-admin", "overview"); } catch {} setAuthUser(u); }} theme={theme} onToggleTheme={toggleTheme} />;
   if (!profile || !data) return error ? <div className="min-h-screen flex items-center justify-center px-6 text-center" style={{ background: C.bg, color: C.rose }}>{error}</div> : <LoadingSkeleton />;
 

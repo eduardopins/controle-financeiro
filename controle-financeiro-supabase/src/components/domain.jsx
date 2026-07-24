@@ -4,7 +4,7 @@ import { CreditCard, Plus, Pencil, Trash2, LogOut, Wallet, PieChart as PieIcon, 
 import { C, CATEGORIES } from "../lib/constants";
 import { brl, firstName, sortByName, monthKeyFromDate, currentMonthKey, diffMonths, diffDays, monthLabel, openInvoiceMonth, invoiceMonthForPurchase, isDueIn, monthlyValue, overridesMap, billingInfo, isIncomeDueIn, detectBank, shade, incomeMonthlyValue, projectMonthEnd, investmentBalance, estimatedYieldToDate, investmentMonthlyRate, getCategoryColor, parseBankCSV, monthKeysForPeriod, paidForInvoice, invoicePaymentStatus, formatShortDate } from "../lib/domain";
 import { friendlyError, guardedHandler } from "../lib/errors";
-import { uploadReceipt, uploadAvatar, saveProfileAvatar, logActivity, deleteExpense, deleteIncome, extractReceiptData } from "../lib/data";
+import { uploadReceipt, uploadAvatar, saveProfileAvatar, logActivity, deleteExpense, deleteIncome, extractReceiptData, createProfile } from "../lib/data";
 import { Switch, IconField, CurrencyInput, CurrencyIconField, Panel, Btn, Field, TextInput, Select, Modal, DateInput, FileInput, Amount, ProgressBar, Chip, EmptyState, ThemeToggle, Avatar, SwipeActions } from "./primitives";
 
 
@@ -12,16 +12,45 @@ import { Switch, IconField, CurrencyInput, CurrencyIconField, Panel, Btn, Field,
 /* ---------------------------------- LOGIN ---------------------------------- */
 
 export function Login({ onLogin, theme, onToggleTheme }) {
+  const [mode, setMode] = useState("login"); // login | forgot | forgotSent | signup | signupSent
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const resetToLogin = () => { setMode("login"); setErr(""); setPassword(""); setConfirmPassword(""); };
 
   const submit = async () => {
     setLoading(true); setErr("");
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) { setErr("E-mail ou senha incorretos."); return; }
+    onLogin(data.user);
+  };
+
+  const submitForgot = async () => {
+    if (!email) { setErr("Informe seu e-mail primeiro."); return; }
+    setLoading(true); setErr("");
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    setLoading(false);
+    if (error) { setErr(friendlyError(error)); return; }
+    setMode("forgotSent");
+  };
+
+  const submitSignup = async () => {
+    if (!name.trim()) { setErr("Informe seu nome."); return; }
+    if (password.length < 6) { setErr("A senha precisa ter pelo menos 6 caracteres."); return; }
+    if (password !== confirmPassword) { setErr("As senhas não coincidem."); return; }
+    setLoading(true); setErr("");
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) { setLoading(false); setErr(friendlyError(error)); return; }
+    // Se o projeto exige confirmação por e-mail, ainda não existe sessão aqui —
+    // a pessoa confirma o e-mail primeiro e só depois consegue entrar de fato.
+    if (!data.session) { setLoading(false); setMode("signupSent"); return; }
+    try { await createProfile(data.user.id, name.trim()); } catch (e) { console.error("Falha ao criar perfil:", e); }
+    setLoading(false);
     onLogin(data.user);
   };
 
@@ -38,19 +67,154 @@ export function Login({ onLogin, theme, onToggleTheme }) {
           <span className="text-xl font-semibold tracking-wide" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>Controle Financeiro</span>
         </div>
         <Panel>
-          <Field label="E-mail"><TextInput value={email} onChange={(e) => setEmail(e.target.value)} autoFocus /></Field>
-          <Field label="Senha">
-            <TextInput type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
-          </Field>
-          {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
-          <Btn full onClick={submit} disabled={loading || !email || !password}><Lock size={14} /> Entrar</Btn>
+          {mode === "forgotSent" && (
+            <>
+              <p className="text-sm mb-4" style={{ color: C.text }}>
+                Se <strong>{email}</strong> tiver uma conta, enviamos um link pra redefinir a senha. Confira sua caixa de entrada (e o spam).
+              </p>
+              <Btn full variant="ghost" onClick={resetToLogin}>Voltar para o login</Btn>
+            </>
+          )}
+          {mode === "forgot" && (
+            <>
+              <p className="text-xs mb-3" style={{ color: C.muted }}>Informe seu e-mail e enviaremos um link pra você criar uma senha nova.</p>
+              <Field label="E-mail"><TextInput value={email} onChange={(e) => setEmail(e.target.value)} autoFocus /></Field>
+              {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
+              <Btn full onClick={submitForgot} disabled={loading || !email}>Enviar link</Btn>
+              <button onClick={resetToLogin} className="text-xs mt-3 block mx-auto" style={{ color: C.muted }}>Voltar</button>
+            </>
+          )}
+          {mode === "signupSent" && (
+            <>
+              <p className="text-sm mb-4" style={{ color: C.text }}>
+                Quase lá! Enviamos um link de confirmação pra <strong>{email}</strong>. Depois de confirmar, é só entrar normalmente.
+              </p>
+              <Btn full variant="ghost" onClick={resetToLogin}>Voltar para o login</Btn>
+            </>
+          )}
+          {mode === "signup" && (
+            <>
+              <p className="text-xs mb-3" style={{ color: C.muted }}>Crie sua conta. Depois disso, quem já administra a conta precisa liberar acesso aos cartões e caixinhas pra você — por padrão você entra sem ver nada ainda.</p>
+              <Field label="Seu nome"><TextInput value={name} onChange={(e) => setName(e.target.value)} autoFocus /></Field>
+              <Field label="E-mail"><TextInput value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+              <Field label="Senha"><TextInput type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+              <Field label="Confirmar senha">
+                <TextInput type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submitSignup()} />
+              </Field>
+              {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
+              <Btn full onClick={submitSignup} disabled={loading || !name || !email || !password || !confirmPassword}>Criar conta</Btn>
+              <button onClick={resetToLogin} className="text-xs mt-3 block mx-auto" style={{ color: C.muted }}>Já tenho conta</button>
+            </>
+          )}
+          {mode === "login" && (
+            <>
+              <Field label="E-mail"><TextInput value={email} onChange={(e) => setEmail(e.target.value)} autoFocus /></Field>
+              <Field label="Senha">
+                <TextInput type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+              </Field>
+              {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
+              <Btn full onClick={submit} disabled={loading || !email || !password}><Lock size={14} /> Entrar</Btn>
+              <div className="flex items-center justify-center gap-4 mt-3">
+                <button onClick={() => { setMode("forgot"); setErr(""); }} className="text-xs" style={{ color: C.muted }}>Esqueci minha senha</button>
+                <button onClick={() => { setMode("signup"); setErr(""); }} className="text-xs" style={{ color: C.muted }}>Criar conta</button>
+              </div>
+            </>
+          )}
         </Panel>
       </div>
     </div>
   );
 }
 
-export function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh, isAdmin, onShowActivity }) {
+// Modal simples pra trocar a senha estando logado (diferente do fluxo de
+// "esqueci minha senha" — aqui a pessoa já está autenticada e só quer atualizar
+// a senha por conta própria, sem precisar de link por e-mail).
+export function AccountSettingsModal({ profile, onClose }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const submit = async () => {
+    if (password.length < 6) { setErr("A senha precisa ter pelo menos 6 caracteres."); return; }
+    if (password !== confirm) { setErr("As senhas não coincidem."); return; }
+    setSaving(true); setErr("");
+    const { error } = await supabase.auth.updateUser({ password });
+    setSaving(false);
+    if (error) { setErr(friendlyError(error)); return; }
+    setDone(true);
+    setPassword(""); setConfirm("");
+  };
+
+  return (
+    <Modal title="Configurações da conta" onClose={onClose}>
+      <p className="text-xs mb-4" style={{ color: C.muted }}>Logado como <strong style={{ color: C.text }}>{profile.name}</strong></p>
+      <h4 className="text-xs font-medium mb-3 tracking-wide uppercase" style={{ color: C.muted }}>Trocar senha</h4>
+      {done && <p className="text-xs mb-3" style={{ color: C.green }}>Senha atualizada com sucesso.</p>}
+      <Field label="Nova senha"><TextInput type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+      <Field label="Confirmar nova senha"><TextInput type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
+      {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
+      <Btn full onClick={submit} disabled={saving || !password || !confirm}>{saving ? "Salvando..." : "Salvar nova senha"}</Btn>
+    </Modal>
+  );
+}
+
+export function SetNewPassword({ onDone, theme, onToggleTheme }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const submit = async () => {
+    if (password.length < 6) { setErr("A senha precisa ter pelo menos 6 caracteres."); return; }
+    if (password !== confirm) { setErr("As senhas não coincidem."); return; }
+    setLoading(true); setErr("");
+    const { error } = await supabase.auth.updateUser({ password });
+    setLoading(false);
+    if (error) { setErr(friendlyError(error)); return; }
+    setDone(true);
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-5 relative" style={{ background: C.bg }}>
+      <div className="absolute top-5 right-5">
+        <button onClick={onToggleTheme} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.border}` }}>
+          {theme === "dark" ? <Sun size={15} color={C.gold} /> : <Moon size={15} color={C.gold} />}
+        </button>
+      </div>
+      <div className="w-full max-w-sm">
+        <div className="flex items-center gap-2 mb-8 justify-center">
+          <Wallet size={26} color={C.gold} />
+          <span className="text-xl font-semibold tracking-wide" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>Controle Financeiro</span>
+        </div>
+        <Panel>
+          {done ? (
+            <>
+              <p className="text-sm mb-4" style={{ color: C.text }}>Senha atualizada! Pode continuar usando o app normalmente.</p>
+              <Btn full onClick={onDone}>Continuar</Btn>
+            </>
+          ) : (
+            <>
+              <p className="text-xs mb-3" style={{ color: C.muted }}>Escolha uma nova senha pra sua conta.</p>
+              <Field label="Nova senha">
+                <TextInput type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
+              </Field>
+              <Field label="Confirmar nova senha">
+                <TextInput type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+              </Field>
+              {err && <p className="text-xs mb-3" style={{ color: C.rose }}>{err}</p>}
+              <Btn full onClick={submit} disabled={loading || !password || !confirm}><Lock size={14} /> Salvar nova senha</Btn>
+            </>
+          )}
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+export function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh, isAdmin, onShowActivity, onShowSettings }) {
   const [uploading, setUploading] = useState(false);
   const handleAvatarUpload = async (file) => {
     setUploading(true);
@@ -67,13 +231,23 @@ export function TopBar({ profile, onLogout, theme, onToggleTheme, data, refresh,
       <div className="max-w-3xl mx-auto px-4 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <Avatar profile={profile} size={30} editable onUpload={handleAvatarUpload} uploading={uploading} />
-          <span className="text-sm font-semibold tracking-wide" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{firstName(profile.name)}</span>
-          {profile.role === "admin" && <Chip>admin</Chip>}
+          <button onClick={onShowSettings} className="flex items-center gap-2" aria-label="Configurações da conta">
+            <span className="text-sm font-semibold tracking-wide" style={{ color: C.text, fontFamily: "'Manrope', sans-serif" }}>{firstName(profile.name)}</span>
+            {profile.role === "admin" && <Chip>admin</Chip>}
+          </button>
         </div>
-        <div className="flex items-center gap-3">
-          {isAdmin && <button onClick={onShowActivity} aria-label="Atividade recente" title="Atividade recente"><History size={16} color={C.muted} /></button>}
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <button onClick={onShowActivity} aria-label="Atividade recente" title="Atividade recente"
+              className="w-8 h-8 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.border}` }}>
+              <History size={14} color={C.muted} />
+            </button>
+          )}
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
-          <button onClick={onLogout} aria-label="Sair da conta" title="Sair"><LogOut size={17} color={C.muted} /></button>
+          <button onClick={onLogout} aria-label="Sair da conta" title="Sair"
+            className="w-8 h-8 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.border}` }}>
+            <LogOut size={14} color={C.muted} />
+          </button>
         </div>
       </div>
     </div>
@@ -1378,7 +1552,7 @@ export function RecentReconciliationBanner({ expenses, reconciliations, profileI
 
 /* ---------------------------------- DASHBOARDS ---------------------------------- */
 
-export function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, data, refresh, onAddExpense, onAddIncome, isAdmin, onShowActivity }) {
+export function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLogout, data, refresh, onAddExpense, onAddIncome, isAdmin, onShowActivity, onShowSettings }) {
   const [uploading, setUploading] = useState(false);
   const handleAvatarUpload = async (file) => {
     setUploading(true);
@@ -1430,10 +1604,10 @@ export function Sidebar({ profile, tabs, tab, setTab, theme, onToggleTheme, onLo
 
       <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-3" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
         <Avatar profile={profile} size={32} editable onUpload={handleAvatarUpload} uploading={uploading} />
-        <div className="min-w-0 flex-1">
+        <button onClick={onShowSettings} className="min-w-0 flex-1 text-left" aria-label="Configurações da conta">
           <div className="text-xs font-semibold truncate" style={{ color: C.text }}>{firstName(profile.name)}</div>
           {profile.role === "admin" && <div className="text-[10.5px]" style={{ color: C.muted }}>admin</div>}
-        </div>
+        </button>
         {isAdmin && (
           <button onClick={onShowActivity} aria-label="Atividade recente" className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all" style={{ border: `1px solid ${C.border}` }} title="Atividade recente">
             <History size={13} color={C.muted} />

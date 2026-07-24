@@ -158,6 +158,16 @@ export async function saveProfileAvatar(profileId, url) {
   const { error } = await supabase.from("profiles").update({ avatar_url: url }).eq("id", profileId);
   if (error) throw error;
 }
+// Cria a linha em "profiles" pra um usuário recém-criado no Auth. Usa upsert
+// porque, dependendo de como o projeto Supabase está configurado, pode já
+// existir um gatilho no banco que cria essa linha sozinho — upsert evita erro
+// de duplicidade nesse caso. Role sempre "member": quem cria a própria conta
+// não vira admin nem enxerga nenhum cartão/investimento até alguém com acesso
+// de admin liberar manualmente (a tela de cartões/investimentos já tem essa opção).
+export async function createProfile(userId, name) {
+  const { error } = await supabase.from("profiles").upsert({ id: userId, name, role: "member" });
+  if (error) throw error;
+}
 export async function logActivity(profileId, action, description) {
   try { await supabase.from("activity_log").insert({ profile_id: profileId, action, description }); } catch {}
 }

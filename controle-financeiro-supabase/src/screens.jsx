@@ -6,7 +6,7 @@ import { friendlyError, guardedHandler } from "./lib/errors";
 import { saveInvoicePayment, updateInvoicePayment, deleteInvoicePayment, saveExpenseOverride, removeExpenseForMonth, deleteExpenseOverride, syncPluggyCards, dismissUnmatchedTransaction, syncPluggyTransactions, applyPluggyValues, saveCard, deleteCard, logActivity, saveExpense, deleteExpense, restoreExpense, permanentlyDeleteExpense, setExpenseReconciled, saveBudget, deleteBudget, saveIncome, saveCustomCategory, saveInvestment, deleteInvestment, saveInvestmentTransaction, deleteInvestmentTransaction, bulkUpdateCategory } from "./lib/data";
 import { useCurrentCDI, useBillAlerts, useBudgetAlerts, useWeeklyDigest, usePersistentTab, useIsDesktop, useKeyboardShortcuts } from "./hooks";
 import { HeroPanel, CurrencyInput, Panel, Btn, Field, TextInput, Select, Amount, ProgressBar, Chip, ScreenHeader, EmptyState, BottomNav, Avatar, UpcomingBillsPanel, FloatingAddButton, ScrollToTopButton } from "./components/primitives";
-import { TopBar, ExpenseForm, CardForm, CardWidget, GroupedExpenseRow, ExpenseRow, IncomeForm, IncomeSection, InvestmentForm, InvestmentTransactionForm, InvestmentCard, InvestmentSimulator, ImportCSVModal, PayInvoiceModal, ChoosePayCardModal, ScopeChoiceModal, MonthOverrideModal, TrashModal, MonthlyReviewBanner, RecurringReviewModal, RecentReconciliationBanner, Sidebar } from "./components/domain";
+import { TopBar, ExpenseForm, CardForm, CardWidget, GroupedExpenseRow, ExpenseRow, IncomeForm, IncomeSection, InvestmentForm, InvestmentTransactionForm, InvestmentCard, InvestmentSimulator, ImportCSVModal, PayInvoiceModal, ChoosePayCardModal, ScopeChoiceModal, MonthOverrideModal, TrashModal, MonthlyReviewBanner, RecurringReviewModal, RecentReconciliationBanner, Sidebar, AccountSettingsModal } from "./components/domain";
 import { useToast } from "./components/Toast";
 
 // Carregado sob demanda: só baixa o código dos relatórios quando a aba é aberta.
@@ -1002,6 +1002,7 @@ function AppShell({ profile, data, refresh, onLogout, theme, onToggleTheme, isAd
   const [showQuickIncome, setShowQuickIncome] = useState(false);
   const [showCardsManagement, setShowCardsManagement] = useState(false);
   const [showActivityLog, setShowActivityLog] = useState(false);
+  const [showAccountSettings, setShowAccountSettings] = useState(false);
   const myCards = isAdmin ? data.cards : accessibleCards(data, profile.id);
   useBillAlerts(myCards, data.expenses, data.invoicePayments);
   useBudgetAlerts(profile, data);
@@ -1028,9 +1029,9 @@ function AppShell({ profile, data, refresh, onLogout, theme, onToggleTheme, isAd
   const OverviewScreen = isAdmin ? AdminOverview : MemberOverview;
   return (
     <div className="lg:flex lg:items-start">
-      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} isAdmin={isAdmin} onShowActivity={() => setShowActivityLog(true)} />
+      <Sidebar profile={profile} tabs={tabs} tab={tab} setTab={setTab} theme={theme} onToggleTheme={onToggleTheme} onLogout={onLogout} data={data} refresh={refresh} onAddExpense={() => setShowQuickAdd(true)} onAddIncome={() => setShowQuickIncome(true)} isAdmin={isAdmin} onShowActivity={() => setShowActivityLog(true)} onShowSettings={() => setShowAccountSettings(true)} />
       <div className="lg:flex-1 lg:min-w-0">
-        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} isAdmin={isAdmin} onShowActivity={() => setShowActivityLog(true)} /></div>
+        <div className="lg:hidden"><TopBar profile={profile} onLogout={onLogout} theme={theme} onToggleTheme={onToggleTheme} data={data} refresh={refresh} isAdmin={isAdmin} onShowActivity={() => setShowActivityLog(true)} onShowSettings={() => setShowAccountSettings(true)} /></div>
         <div key={tab} className="animate-tab-enter">
           {tab === "overview" && <OverviewScreen profile={profile} data={data} refresh={refresh} onManageCards={() => setShowCardsManagement(true)} />}
           {tab === "history" && <HistoryScreen profile={profile} data={data} refresh={refresh} isAdmin={isAdmin} />}
@@ -1043,6 +1044,7 @@ function AppShell({ profile, data, refresh, onLogout, theme, onToggleTheme, isAd
         {showQuickAdd && <ExpenseForm cards={myCards} userId={profile.id} onSave={handleQuickSave} onClose={() => setShowQuickAdd(false)} allProfiles={data.profiles} creatorId={profile.id} canRefund={isAdmin} expenses={data.expenses}
           customCategories={data.customCategories} onAddCategory={guardedHandler(async (pid, name) => { await saveCustomCategory(pid, name); await refresh(); }, "adicionar a categoria")} />}
         {showQuickIncome && <IncomeForm profileId={profile.id} onSave={handleQuickIncomeSave} onClose={() => setShowQuickIncome(false)} />}
+        {showAccountSettings && <AccountSettingsModal profile={profile} onClose={() => setShowAccountSettings(false)} />}
         {showCardsManagement && (
           <div className="fixed inset-0 z-40 overflow-y-auto animate-tab-enter" style={{ background: C.bg }}>
             <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3.5 lg:px-10" style={{ background: "var(--bg)", borderBottom: `1px solid ${C.border}`, paddingTop: "env(safe-area-inset-top, 0px)" }}>
